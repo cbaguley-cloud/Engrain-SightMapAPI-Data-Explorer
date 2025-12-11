@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Engrain API Toolset</title>
+
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;600&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div class="card" style="border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: 0; border-bottom: none;">
+        <h2 style="color: white">SightMap API Data Explorer</h2>
+        <div>
+            <label class="section-label">API Key (Required for all tools)</label>
+            <input type="text" id="apiKey" placeholder="Paste API Key here..." />
+        </div>
+    </div>
+
+    <div class="tab-nav">
+        <button class="tab-btn active" onclick="openTab('tab-maps')">Unit Map Hunter</button>
+        <button class="tab-btn" onclick="openTab('tab-list-assets')">Asset List (Global)</button>
+        <button class="tab-btn" onclick="openTab('tab-account-assets')">Account Assets</button>
+        <button class="tab-btn" onclick="openTab('tab-assets')">Asset Matcher (Fuzzy)</button>
+        <button class="tab-btn" onclick="openTab('tab-global-fuzzy')">Global Fuzzy Match</button>
+        <button class="tab-btn" onclick="openTab('tab-expenses')">Asset Expenses</button>
+        <button class="tab-btn" onclick="openTab('tab-references')">Asset References</button>
+        <button class="tab-btn" onclick="openTab('tab-unit-refs')">Unit References</button>
+    </div>
+
+    <div id="tab-maps" class="tab-content active">
+        <div class="card" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+            <div style="margin-bottom: 20px;">
+                <div style="display:flex; justify-content: flex-start; align-items:center; margin-bottom:5px;">
+                    <label class="section-label">Target Map Styles</label>
+                    <label style="font-size:0.8rem; cursor:pointer; color: var(--accent-light); margin-left: 15px;">
+                        <input type="checkbox" id="selectAllStyles"> Select All
+                    </label>
+                </div>
+                <div class="checkbox-grid">
+                    <label><input type="checkbox" name="style" value="c"> c</label>
+                    <label><input type="checkbox" name="style" value="c+"> c+</label>
+                    <label><input type="checkbox" name="style" value="h"> h</label>
+                    <label><input type="checkbox" name="style" value="b"> b</label>
+                    <label><input type="checkbox" name="style" value="d"> d</label>
+                    <label><input type="checkbox" name="style" value="f.1"> f.1</label>
+                    <label><input type="checkbox" name="style" value="f.3"> f.3</label>
+                </div>
+            </div>
+            <hr>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label class="section-label">Option A: Single Search</label>
+                    <div class="input-group">
+                        <input type="text" id="assetId" placeholder="Asset ID (e.g. 7779)" />
+                        <button id="fetchBtn">Search Maps</button>
+                    </div>
+                </div>
+                <div style="border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label class="section-label">Option B: Bulk Upload</label>
+                        <a href="#" id="mapTemplateLink" style="font-size:0.8rem; color:white; text-decoration:none;">Download CSV Template</a>
+                    </div>
+                    <div class="input-group" style="margin-top:5px;">
+                        <input type="file" id="csvFile" accept=".csv" />
+                        <button id="bulkBtn">Run Bulk Search</button>
+                    </div>
+                </div>
+            </div>
+            <div id="statusMsg" class="status">Ready.</div>
+            <div id="progressBar" style="height: 4px; width: 0%; background: var(--primary); transition: width 0.3s; margin-top:10px;"></div>
+            <div class="header-row" style="margin-top: 30px;">
+                <h2>Results <span id="mapCount" class="count-badge">0</span></h2>
+                <div class="btn-group">
+                    <button id="copyMapClipBtn" class="secondary-btn" style="background-color: var(--col-navy); border-color: var(--col-purple);">Copy Table</button>
+                    <button id="downloadBtn" class="secondary-btn">Download CSV</button>
+                    <button id="copyBtn" class="secondary-btn">Copy JSON</button>
+                </div>
+            </div>
+            <div class="table-scroll-area">
+                <table id="resultsTable">
+                    <thead><tr><th>Asset ID</th><th>Map Name</th><th>Map ID</th><th>Style</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-list-assets" class="tab-content">
+        <div class="card" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+            <label class="section-label">Filter Criteria</label>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 15px; align-items: end;">
+                <div><input type="text" id="filterCity" placeholder="City (e.g. Denver)" /></div>
+                <div><input type="text" id="filterState" placeholder="State (e.g. CO)" /></div>
+                <div><input type="text" id="filterTag" placeholder="Tag (e.g. syndication-ready)" /></div>
+                <button id="fetchListBtn">Fetch & Filter</button>
+            </div>
+            <div id="listStatusMsg" class="status">Ready.</div>
+            <div id="listProgressBar" style="height: 4px; width: 0%; background: var(--primary); transition: width 0.3s; margin-top:10px;"></div>
+            <div class="header-row" style="margin-top: 30px;">
+                <h2>Global Results <span id="globalListCount" class="count-badge">0</span></h2>
+                <div class="btn-group">
+                    <button id="copyListClipBtn" class="secondary-btn" style="background-color: var(--col-navy); border-color: var(--col-purple);">Copy Table</button>
+                    <button id="downloadListCsvBtn" class="secondary-btn">Download CSV</button>
+                    <button id="copyListJsonBtn" class="secondary-btn">Copy JSON</button>
+                </div>
+            </div>
+            <div class="table-scroll-area">
+                <table id="assetListTable">
+                    <thead><tr><th>Asset ID</th><th>Name</th><th>Address</th><th>City</th><th>State</th><th>Tags</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-account-assets" class="tab-content">
+        <div class="card" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+            <div style="margin-bottom: 20px;">
+                <label class="section-label">Account ID (Required)</label>
+                <div class="input-group">
+                    <input type="text" id="acctAssetAccountId" placeholder="e.g. 1005" />
+                    <button id="fetchAcctAssetsBtn">Fetch Assets</button>
+                </div>
+            </div>
+            <hr>
+            <label class="section-label">Filter Results</label>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                <select id="acctFilterCity" disabled><option value="ALL">All Cities</option></select>
+                <select id="acctFilterState" disabled><option value="ALL">All States</option></select>
+                <select id="acctFilterTag" disabled><option value="ALL">All Tags</option></select>
+            </div>
+            <div id="acctAssetStatusMsg" class="status" style="margin-top:15px;">Ready.</div>
+            <div id="acctAssetProgressBar" style="height: 4px; width: 0%; background: var(--primary); transition: width 0.3s; margin-top:10px;"></div>
+            <div class="header-row" style="margin-top: 30px;">
+                <h2>Account Results <span id="acctAssetCount" class="count-badge">0</span></h2>
+                <div class="btn-group">
+                    <button id="copyAcctClipBtn" class="secondary-btn" style="background-color: var(--col-navy); border-color: var(--col-purple);">Copy Table</button>
+                    <button id="downloadAcctAssetCsvBtn" class="secondary-btn">Download CSV</button>
+                    <button id="copyAcctAssetJsonBtn" class="secondary-btn">Copy JSON</button>
+                </div>
+            </div>
+            <div class="table-scroll-area">
+                <table id="acctAssetTable">
+                    <thead><tr><th>Asset ID</th><th>Name</th><th>Address</th><th>City</th><th>State</th><th>Tags</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-assets" class="tab-content">
+        <div class="card" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+            <div style="margin-bottom: 20px;">
+                <label class="section-label">Account ID (Required)</label>
+                <input type="text" id="accountId" placeholder="e.g. 1005" />
+            </div>
+            <hr>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label class="section-label">Option A: Single Lookup</label>
+                    <div style="display:grid; gap: 10px;">
+                        <input type="text" id="searchName" placeholder="Asset Name (e.g. Greenwood Apts)" />
+                        <div style="display:flex; gap:10px;">
+                            <input type="text" id="searchCity" placeholder="City" />
+                            <input type="text" id="searchState" placeholder="State (eg. CO)" />
+                        </div>
+                        <button id="findAssetBtn">Find Best Match</button>
+                    </div>
+                </div>
+                <div style="border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label class="section-label">Option B: Bulk Match</label>
+                        <a href="#" id="assetTemplateLink" style="font-size:0.8rem; color: white; text-decoration:none;">Download CSV Template</a>
+                    </div>
+                    <div class="input-group" style="margin-top:5px;">
+                        <input type="file" id="assetCsvFile" accept=".csv" />
+                        <button id="assetBulkBtn">Run Fuzzy Match</button>
+                    </div>
+                </div>
+            </div>
+            <div id="assetStatusMsg" class="status" style="margin-top: 20px;">Ready to scan account.</div>
+            <div id="assetProgressBar" style="height: 4px; width: 0%; background: var(--primary); transition: width 0.3s; margin-top:10px;"></div>
+            <div class="header-row" style="margin-top: 30px;">
+                <h2>Matched Results <span id="fuzzyCount" class="count-badge">0</span></h2>
+                <div class="btn-group">
+                    <button id="copyFuzzyClipBtn" class="secondary-btn" style="background-color: var(--col-navy); border-color: var(--col-purple);">Copy Table</button>
+                    <button id="downloadAssetBtn" class="secondary-btn">Download CSV</button>
+                </div>
+            </div>
+            <div class="table-scroll-area">
+                <table id="assetTable">
+                    <thead><tr><th>Score</th><th>Input Name</th><th>Matched Engrain Asset ID</th><th>Matched Name</th><th>Location</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-global-fuzzy" class="tab-content">
+        <div class="card" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label class="section-label">Option A: Single Address Match</label>
+                    <div style="display:grid; gap: 10px;">
+                        <input type="text" id="gfName" placeholder="Property Name" />
+                        <input type="text" id="gfAddress" placeholder="Address Line 1 (e.g. 123 Main St)" />
+                        <div style="display:flex; gap:10px;">
+                            <input type="text" id="gfCity" placeholder="City" />
+                            <input type="text" id="gfState" placeholder="State" />
+                        </div>
+                        <button id="runGlobalFuzzyBtn">Run Match</button>
+                    </div>
+                </div>
+                <div style="border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label class="section-label">Option B: Bulk Address Match</label>
+                        <a href="#" id="gfTemplateLink" style="font-size:0.8rem; color:white; text-decoration:none;">Download CSV Template</a>
+                    </div>
+                    <div class="input-group" style="margin-top:5px;">
+                        <input type="file" id="gfCsvFile" accept=".csv" />
+                        <button id="bulkGlobalFuzzyBtn">Run Bulk Match</button>
+                    </div>
+                </div>
+            </div>
+            <div id="gfStatusMsg" class="status" style="margin-top: 20px;">Ready to scan global database.</div>
+            <div id="gfProgressBar" style="height: 4px; width: 0%; background: var(--primary); transition: width 0.3s; margin-top:10px;"></div>
+            <div class="header-row" style="margin-top: 30px;">
+                <h2>Global Match Results <span id="gfCount" class="count-badge">0</span></h2>
+                <div class="btn-group">
+                    <button id="copyGfClipBtn" class="secondary-btn" style="background-color: var(--col-navy); border-color: var(--col-purple);">Copy Table</button>
+                    <button id="downloadGfBtn" class="secondary-btn">Download CSV</button>
+                </div>
+            </div>
+            <div class="table-scroll-area">
+                <table id="gfTable">
+                    <thead><tr><th>Score</th><th>Input Name</th><th>Input Address</th><th>Input City</th><th>Input State</th><th>Matched ID</th><th>Matched Name</th><th>Matched Address</th><th>Matched City</th><th>Matched State</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-expenses" class="tab-content">
+        <div class="card" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label class="section-label">Option A: Single Search</label>
+                    <div class="input-group">
+                        <input type="text" id="expAssetId" placeholder="Asset ID (e.g. 1323)" />
+                        <button id="fetchExpBtn">Get Expenses</button>
+                    </div>
+                </div>
+                <div style="border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label class="section-label">Option B: Bulk Upload</label>
+                        <a href="#" id="expTemplateLink" style="font-size:0.8rem; color:white; text-decoration:none;">Download CSV Template</a>
+                    </div>
+                    <div class="input-group" style="margin-top:5px;">
+                        <input type="file" id="expCsvFile" accept=".csv" />
+                        <button id="bulkExpBtn">Run Bulk Search</button>
+                    </div>
+                </div>
+            </div>
+            <hr>
+            <label class="section-label">Multi-Filter Results</label>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                <select id="expFilterType" disabled><option value="ALL">All Types</option></select>
+                <select id="expFilterCat" disabled><option value="ALL">All Categories</option></select>
+                <select id="expFilterFreq" disabled><option value="ALL">All Frequencies</option></select>
+            </div>
+            <div id="expStatusMsg" class="status" style="margin-top:15px;">Ready.</div>
+            <div id="expProgressBar" style="height: 4px; width: 0%; background: var(--primary); transition: width 0.3s; margin-top:10px;"></div>
+            <div class="header-row" style="margin-top: 30px;">
+                <h2>Expense Results <span id="expCount" class="count-badge">0</span></h2>
+                <div class="btn-group">
+                    <button id="copyExpClipBtn" class="secondary-btn" style="background-color: var(--col-navy); border-color: var(--col-purple);">Copy Table</button>
+                    <button id="downloadExpCsvBtn" class="secondary-btn">Download CSV</button>
+                    <button id="copyExpJsonBtn" class="secondary-btn">Copy JSON</button>
+                </div>
+            </div>
+            <div class="table-scroll-area">
+                <table id="expTable">
+                    <thead>
+                        <tr>
+                            <th>Asset ID</th>
+                            <th>Asset Name</th>
+                            <th>Label</th>
+                            <th>Type</th>
+                            <th>Category</th>
+                            <th>Frequency</th>
+                            <th>Amount</th>
+                            <th>Required?</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-references" class="tab-content">
+        <div class="card" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label class="section-label">Option A: Single Search</label>
+                    <div class="input-group">
+                        <input type="text" id="refAssetId" placeholder="Asset ID (e.g. 4715)" />
+                        <button id="fetchRefBtn">Get References</button>
+                    </div>
+                </div>
+                <div style="border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label class="section-label">Option B: Bulk Upload</label>
+                        <a href="#" id="refTemplateLink" style="font-size:0.8rem; color:white; text-decoration:none;">Download CSV Template</a>
+                    </div>
+                    <div class="input-group" style="margin-top:5px;">
+                        <input type="file" id="refCsvFile" accept=".csv" />
+                        <button id="bulkRefBtn">Run Bulk Search</button>
+                    </div>
+                </div>
+            </div>
+            <div id="refStatusMsg" class="status">Ready.</div>
+            <div id="refProgressBar" style="height: 4px; width: 0%; background: var(--primary); transition: width 0.3s; margin-top:10px;"></div>
+            <div class="header-row" style="margin-top: 30px;">
+                <h2>Reference Results <span id="refCount" class="count-badge">0</span></h2>
+                <div class="btn-group">
+                    <button id="copyRefClipBtn" class="secondary-btn" style="background-color: var(--col-navy); border-color: var(--col-purple);">Copy Table</button>
+                    <button id="downloadRefCsvBtn" class="secondary-btn">Download CSV</button>
+                    <button id="copyRefJsonBtn" class="secondary-btn">Copy JSON</button>
+                </div>
+            </div>
+            <div class="table-scroll-area">
+                <table id="refTable">
+                    <thead><tr><th>Asset ID</th><th>Reference ID</th><th>Ref Name</th><th>Key</th><th>Value</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-unit-refs" class="tab-content">
+        <div class="card" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label class="section-label">Option A: Single Search</label>
+                    <div class="input-group">
+                        <input type="text" id="unitRefAssetId" placeholder="Asset ID (e.g. 1323)" />
+                        <button id="fetchUnitRefBtn">Get Unit References</button>
+                    </div>
+                </div>
+                <div style="border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label class="section-label">Option B: Bulk Upload</label>
+                        <a href="#" id="unitRefTemplateLink" style="font-size:0.8rem; color:white; text-decoration:none;">Download CSV Template</a>
+                    </div>
+                    <div class="input-group" style="margin-top:5px;">
+                        <input type="file" id="unitRefCsvFile" accept=".csv" />
+                        <button id="bulkUnitRefBtn">Run Bulk Search</button>
+                    </div>
+                </div>
+            </div>
+            <div id="unitRefStatusMsg" class="status">Ready.</div>
+            <div id="unitRefProgressBar" style="height: 4px; width: 0%; background: var(--primary); transition: width 0.3s; margin-top:10px;"></div>
+            <div class="header-row" style="margin-top: 30px;">
+                <div style="display:flex; align-items:center; gap:15px;">
+                    <h2>Unit References <span id="unitRefCount" class="count-badge">0</span></h2>
+                    <select id="unitRefKeyFilter" style="padding:6px; border-radius:4px; border:1px solid var(--border-color); background:#262626; color:white; font-size:0.85rem; cursor:pointer;">
+                        <option value="ALL">Show All Keys</option>
+                    </select>
+                </div>
+                <div class="btn-group">
+                    <button id="copyUnitRefClipBtn" class="secondary-btn" style="background-color: var(--col-navy); border-color: var(--col-purple);">Copy Table</button>
+                    <button id="downloadUnitRefCsvBtn" class="secondary-btn">Download CSV</button>
+                    <button id="copyUnitRefJsonBtn" class="secondary-btn">Copy JSON</button>
+                </div>
+            </div>
+            <div class="table-scroll-area">
+                <table id="unitRefTable">
+                    <thead><tr><th>Asset ID</th><th>Group Name</th><th>Unit ID</th><th>Key</th><th>Value</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+    </script>
+    <script src="unitmap-search.js" defer></script> 
+    <script src="asset-search.js" defer></script>
+    <script src="asset-references.js" defer></script>
+    <script src="unit-references.js" defer></script>
+    <script src="asset-list.js" defer></script>
+    <script src="account-assets.js" defer></script>
+    <script src="asset-expenses.js" defer></script>
+    <script src="global-fuzzy.js" defer></script>
+
+</body>
+</html>

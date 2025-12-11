@@ -1,0 +1,182 @@
+/* =========================================
+   VARIABLES & THEME
+   ========================================= */
+:root {
+    --col-deepest: #080B38;  
+    --col-navy:    #133155;  
+    --col-slate:   #254D70;  
+    --col-purple:  #522377;  
+    --col-darkpur: #36195B;  
+    --text-main: #ffffff;
+    --text-muted: #a3b8cc;   
+    --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.4);
+    --radius-main: 8px;
+}
+
+/* ... [Keep Global Reset, Body, Animated Background, Scrollbars same as before] ... */
+html { height: 100%; }
+body {
+    font-family: 'Montserrat', sans-serif;
+    color: var(--text-main);
+    line-height: 1.6;
+    max-width: 80%; 
+    margin: 0 auto; 
+    padding: 40px 20px; 
+    min-height: 100vh; 
+    box-sizing: border-box;
+    background: linear-gradient(-45deg, #080B38, #133155, #254D70, #36195B, #522377);
+    background-size: 400% 400%;
+    animation: gradient 25s ease infinite;
+    scrollbar-color: var(--col-slate) var(--col-deepest);
+}
+@keyframes gradient {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+h2 { margin-top: 0; font-size: 1.5rem; font-weight: 600; color: white; letter-spacing: 0.02em; text-align: center; text-shadow: #080B38; }
+hr { border: 0; border-top: 1px solid var(--col-slate); margin: 25px 0; opacity: 0.5; }
+
+/* ... [Keep Layout Cards, Inputs, Buttons, Tabs same as before] ... */
+.card {
+    background-color: var(--col-navy);
+    padding: 30px;
+    border-radius: var(--radius-main);
+    border: 1px solid var(--col-slate);
+    box-shadow: var(--shadow-soft);
+    margin-bottom: 24px;
+    background-color: rgba(19, 49, 85, 0.95); 
+    backdrop-filter: blur(5px); 
+    overflow: visible; /* Changed to visible to allow tooltips to popup */
+}
+.header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 15px; }
+.section-label { font-weight: 600; font-size: 0.85rem; display: block; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+.input-group { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+input[type="text"], input[type="password"], select {
+    background-color: rgba(8, 11, 56, 0.8); color: white; padding: 12px 16px; border: 1px solid var(--col-slate); border-radius: var(--radius-main); width: 100%; box-sizing: border-box; font-size: 0.95rem; transition: all 0.2s ease;
+}
+input[type="text"]:focus, input[type="password"]:focus, select:focus {
+    outline: none; border-color: var(--col-purple); box-shadow: 0 0 0 3px rgba(82, 35, 119, 0.4); background-color: var(--col-deepest);
+}
+input[type="file"] {
+    background-color: rgba(8, 11, 56, 0.8); color: var(--text-muted); border: 1px solid var(--col-slate); border-radius: var(--radius-main); width: 100%; padding: 10px; cursor: pointer;
+}
+.checkbox-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 12px; background: rgba(8, 11, 56, 0.6); padding: 15px; border-radius: var(--radius-main); border: 1px solid var(--col-slate);
+}
+.checkbox-grid label { font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--text-main); font-weight: 500; }
+.checkbox-grid input[type="checkbox"] { accent-color: var(--col-purple); width: 18px; height: 18px; cursor: pointer; }
+button {
+    background-color: var(--col-purple); color: white; border: none; padding: 12px 24px; border-radius: var(--radius-main); cursor: pointer; font-weight: 600; font-size: 0.95rem; white-space: nowrap; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+button:hover { background-color: var(--col-darkpur); transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
+button:disabled { background-color: var(--col-slate); opacity: 0.5; cursor: not-allowed; transform: none; }
+.secondary-btn { background-color: var(--col-slate); font-size: 0.85rem; padding: 8px 16px; margin-left: 8px; }
+.secondary-btn:hover { background-color: var(--col-purple); }
+a { color: #9d8ec4; text-decoration: none; transition: color 0.2s; }
+a:hover { color: white; text-decoration: underline; }
+.tab-nav {
+    display: flex; background: rgba(8, 11, 56, 0.8); padding: 0 10px; margin-bottom: -1px; border-top-left-radius: var(--radius-main); border-top-right-radius: var(--radius-main); flex-wrap: wrap; 
+}
+.tab-btn {
+    background: transparent; color: var(--text-muted); border: none; border-top-left-radius: 8px; border-top-right-radius: 8px; padding: 14px 20px; font-size: 0.95rem; cursor: pointer; position: relative; box-shadow: none; margin-right: 4px; flex-grow: 1; text-align: center;
+}
+.tab-btn:hover { background: rgba(255, 255, 255, 0.05); color: white; transform: none; }
+.tab-btn.active { background-color: var(--col-navy); color: white; border: 1px solid var(--col-slate); border-bottom: 1px solid var(--col-navy); font-weight: bold; }
+.tab-content { display: none; }
+.tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+.table-scroll-area {
+    margin-top: 20px; max-height: 550px; overflow-y: auto; overflow-x: auto; border: 1px solid var(--col-slate); border-radius: var(--radius-main); background-color: rgba(8, 11, 56, 0.5); scrollbar-width: thin; scrollbar-color: var(--col-purple) var(--col-deepest);
+}
+.table-scroll-area::-webkit-scrollbar { width: 8px; height: 8px; }
+.table-scroll-area::-webkit-scrollbar-track { background: rgba(8, 11, 56, 0.5); }
+.table-scroll-area::-webkit-scrollbar-thumb { background-color: var(--col-slate); border-radius: 4px; }
+.table-scroll-area::-webkit-scrollbar-thumb:hover { background-color: var(--col-purple); }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; min-width: 600px; }
+thead th {
+    background-color: var(--col-darkpur); color: white; text-align: left; padding: 16px; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; border-bottom: 1px solid var(--col-slate); position: sticky; top: 0; z-index: 10; white-space: nowrap; 
+}
+tbody td { padding: 14px 16px; border-bottom: 1px solid #1e2542; color: #cbd5e1; }
+tbody tr:hover { background-color: rgba(82, 35, 119, 0.15); }
+.match-tag { display: inline-block; padding: 4px 12px; border-radius: 20px; background: var(--col-purple); color: white; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+.status { margin-top: 15px; font-size: 0.9rem; color: var(--text-muted); font-weight: 500; }
+#progressBar, #assetProgressBar, #refProgressBar, #unitRefProgressBar, #listProgressBar, #acctAssetProgressBar {
+    box-shadow: 0 0 10px var(--col-purple); background-color: var(--col-purple) !important; border-radius: 2px;
+}
+
+/* =========================================
+   NEW: RESULT COUNTERS & TOOLTIPS
+   ========================================= */
+.count-badge {
+    background-color: var(--col-purple);
+    border: 1px solid var(--col-slate);
+    font-size: 0.8rem;
+    padding: 3px 10px;
+    border-radius: 12px;
+    margin-left: 10px;
+    vertical-align: middle;
+    color: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* Tooltip Container */
+.tooltip {
+    display: inline-block;
+    position: relative;
+    margin-left: 6px;
+    cursor: help;
+    color: #9d8ec4;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+/* Tooltip Text (Hidden by default) */
+.tooltip .tooltip-text {
+    visibility: hidden;
+    width: 240px;
+    background-color: #0f172a;
+    color: #fff;
+    text-align: center;
+    padding: 10px;
+    border-radius: 6px;
+    
+    /* Position the tooltip */
+    position: absolute;
+    z-index: 100;
+    bottom: 130%;
+    left: 50%;
+    margin-left: -120px;
+    
+    /* Fade in */
+    opacity: 0;
+    transition: opacity 0.3s;
+    
+    /* Styling */
+    font-size: 0.75rem;
+    font-weight: normal;
+    text-transform: none;
+    border: 1px solid var(--col-slate);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    pointer-events: none; /* Let clicks pass through */
+}
+
+/* Show the tooltip text when hovering */
+.tooltip:hover .tooltip-text {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* Tooltip Arrow */
+.tooltip .tooltip-text::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #0f172a transparent transparent transparent;
+}
+
+
