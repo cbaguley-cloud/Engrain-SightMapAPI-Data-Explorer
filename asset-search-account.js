@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("downloadAssetBtn")
     .addEventListener("click", downloadAssetCSV);
 
-  // NEW: Copy to Clipboard Button
+  // Copy to Clipboard Button
   const copyClipBtn = document.getElementById("copyFuzzyClipBtn");
   if (copyClipBtn) copyClipBtn.addEventListener("click", copyFuzzyTable);
 
@@ -55,11 +55,17 @@ async function runSingleAssetSearch() {
   }
 
   resetAssetUI();
-  updateAssetStatus("Fetching full asset list (handling pagination)...");
+  updateAssetStatus("Connecting to API...");
 
   try {
     const allAssets = await fetchAllAssets(apiKey, accountId);
+
+    // UI Polish: Ensure bar is 100% when done
+    updateProgressBar(100);
     updateAssetStatus(`Scanning ${allAssets.length} assets against input...`);
+
+    // slight delay to allow UI to render 100%
+    await new Promise((r) => setTimeout(r, 200));
 
     const inputRows = [{ propertyName: name, city: city, state: state }];
     const matches = performMatching(inputRows, allAssets);
@@ -127,16 +133,18 @@ async function runBulkAssetSearch() {
     }
 
     resetAssetUI();
-    updateAssetStatus("Fetching Master Asset List (handling pagination)...");
+    updateAssetStatus("Initializing Bulk Search...");
 
     try {
       const allAssets = await fetchAllAssets(apiKey, accountId);
+
+      updateProgressBar(100);
       updateAssetStatus(
         `Master list obtained (${allAssets.length} assets). Processing ${inputRows.length} rows...`
       );
 
       // Allow UI to update before heavy processing
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 100));
 
       const matches = performMatching(inputRows, allAssets);
 
@@ -159,6 +167,7 @@ async function runBulkAssetSearch() {
 async function fetchAllAssets(apiKey, accountId) {
   let allAssets = [];
   let nextUrl = `https://api.sightmap.com/v1/accounts/${accountId}/assets?per-page=500`;
+  let totalCount = 0; // To track progress
 
   while (nextUrl) {
     const response = await fetch(nextUrl, {
@@ -175,13 +184,26 @@ async function fetchAllAssets(apiKey, accountId) {
     const data = json.data || [];
     allAssets = allAssets.concat(data);
 
+    if (json.paging && json.paging.total_count) {
+      totalCount = json.paging.total_count;
+    }
+
     nextUrl = json.paging ? json.paging.next_url : null;
 
+    // Calculate Percentage
+    let percent = 0;
+    if (totalCount > 0) {
+      percent = Math.floor((allAssets.length / totalCount) * 100);
+    } else {
+      percent = nextUrl ? 50 : 100;
+    }
+
+    updateProgressBar(percent);
     updateAssetStatus(
-      `Fetching assets for Account ${accountId}... (Loaded ${allAssets.length})`
+      `Fetching assets... ${allAssets.length} / ${totalCount || "?"}`
     );
 
-    // Prevent UI freeze during large fetches
+    // Prevent UI freeze
     await new Promise((r) => setTimeout(r, 0));
   }
   return allAssets;
@@ -259,7 +281,7 @@ function performMatching(propertyRows, assets) {
   return matches;
 }
 
-// ... [Keep normalization/scoring helpers same as before] ...
+// ... [Normalization/Scoring Helpers] ...
 function normalize(str) {
   if (!str) return "";
   return str
@@ -332,8 +354,23 @@ function renderResults(matches) {
 function resetAssetUI() {
   assetResults = [];
   document.querySelector("#assetTable tbody").innerHTML = "";
-  document.getElementById("assetProgressBar").style.width = "0%";
+  updateProgressBar(0);
   document.getElementById("fuzzyCount").textContent = "0";
+}
+
+function updateProgressBar(percent) {
+  const bar = document.getElementById("assetProgressBar");
+  if (bar) {
+    bar.style.width = `${percent}%`;
+    bar.textContent = `${percent}%`;
+
+    // Center the text and add padding
+    bar.style.display = "flex";
+    bar.style.alignItems = "center";
+    bar.style.justifyContent = "center";
+    bar.style.whiteSpace = "nowrap"; // Keep text on one line
+    bar.style.padding = "0 8px"; // prevent text from touching edges
+  }
 }
 
 function updateAssetStatus(msg) {
@@ -362,7 +399,6 @@ function downloadAssetCSV() {
   document.body.removeChild(link);
 }
 
-// NEW FUNCTION: Copy Table to Clipboard
 function copyFuzzyTable() {
   if (assetResults.length === 0) {
     alert("No data");

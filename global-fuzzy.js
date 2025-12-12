@@ -1,5 +1,6 @@
 let globalFuzzyResults = [];
 let cachedGlobalAssets = [];
+let assetsByState = {}; // THE NEW INDEX
 
 document.addEventListener("DOMContentLoaded", () => {
   // Buttons
@@ -33,9 +34,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// ==========================================
-// 1. SINGLE SEARCH
-// ==========================================
 async function runSingleGlobalFuzzy() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const name = document.getElementById("gfName").value.trim();
@@ -55,22 +53,29 @@ async function runSingleGlobalFuzzy() {
   resetGfUI();
   updateGfStatus("Fetching Global Asset List (this may take a moment)...");
 
+  // Start Progress
+  document.getElementById("gfProgressBar").style.width = "20%";
+
   try {
-    const assets = await getGlobalAssets(apiKey);
-    updateGfStatus(`Scanning ${assets.length} global assets...`);
+    // 1. Fetch & Index
+    await getGlobalAssets(apiKey);
 
-    // Pause to render UI
-    await new Promise((r) => setTimeout(r, 50));
+    document.getElementById("gfProgressBar").style.width = "50%";
 
+    // 2. Prepare Input
     const inputRows = [
       { propertyName: name, address: address, city: city, state: state },
     ];
 
-    // Use Async Matching
-    const matches = await performGlobalMatchingAsync(inputRows, assets);
+    updateGfStatus(`Scanning database...`);
+
+    // 3. Match
+    const matches = await performGlobalMatchingAsync(inputRows);
 
     renderGfResults(matches);
     globalFuzzyResults = matches;
+
+    document.getElementById("gfProgressBar").style.width = "100%";
 
     if (matches[0].score > 0.8) {
       updateGfStatus(`✅ Strong match found: ${matches[0].matchedAssetName}`);
@@ -85,9 +90,6 @@ async function runSingleGlobalFuzzy() {
   }
 }
 
-// ==========================================
-// 2. BULK SEARCH
-// ==========================================
 async function runBulkGlobalFuzzy() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const fileInput = document.getElementById("gfCsvFile");
@@ -115,19 +117,25 @@ async function runBulkGlobalFuzzy() {
 
     resetGfUI();
     updateGfStatus("Fetching Global Asset List...");
+    document.getElementById("gfProgressBar").style.width = "10%";
 
     try {
-      const assets = await getGlobalAssets(apiKey);
-      updateGfStatus(
-        `Scanning ${assets.length} assets against ${inputRows.length} inputs...`
-      );
+      // 1. Fetch & Index
+      await getGlobalAssets(apiKey);
 
-      // Use Async Matching
-      const matches = await performGlobalMatchingAsync(inputRows, assets);
+      updateGfStatus(`Optimizing search index...`);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // 2. Match
+      updateGfStatus(
+        `Scanning ${cachedGlobalAssets.length} assets against ${inputRows.length} inputs...`
+      );
+      const matches = await performGlobalMatchingAsync(inputRows);
 
       renderGfResults(matches);
       globalFuzzyResults = matches;
 
+      document.getElementById("gfProgressBar").style.width = "100%";
       updateGfStatus(
         `✅ Bulk Process Complete. Processed ${matches.length} rows.`
       );
@@ -142,12 +150,14 @@ async function runBulkGlobalFuzzy() {
 }
 
 // ==========================================
-// API LOGIC (Optimized w/ Yielding)
+// API LOGIC + INDEXING (Optimized)
 // ==========================================
 async function getGlobalAssets(apiKey) {
   if (cachedGlobalAssets.length > 0) return cachedGlobalAssets;
 
   let assets = [];
+  assetsByState = {};
+
   let nextUrl = `https://api.sightmap.com/v1/assets?per-page=500`;
   let pageCount = 0;
 
@@ -162,55 +172,54 @@ async function getGlobalAssets(apiKey) {
     const json = await response.json();
     const data = json.data || [];
 
-    // Push optimization
     for (const item of data) {
       assets.push(item);
+      const stateKey = (item.address_state || "").trim().toLowerCase();
+      if (!assetsByState[stateKey]) {
+        assetsByState[stateKey] = [];
+      }
+      assetsByState[stateKey].push(item);
     }
 
     nextUrl = json.paging ? json.paging.next_url : null;
 
     pageCount++;
-    // Visual Progress
-    const fakeProgress = Math.min(pageCount * 10, 90);
+    // Fetching is phase 1 (0-50%)
+    const fakeProgress = Math.min(pageCount * 5, 50);
     document.getElementById("gfProgressBar").style.width = `${fakeProgress}%`;
 
     updateGfStatus(
-      `Fetching global database... (Loaded ${assets.length} assets)`
+      `Fetching & Indexing global database... (Loaded ${assets.length} assets)`
     );
 
-    // Yield
     await new Promise((r) => setTimeout(r, 0));
   }
 
-  document.getElementById("gfProgressBar").style.width = "100%";
   cachedGlobalAssets = assets;
   return assets;
 }
 
 // ==========================================
-// ASYNC MATCHING (Fixes "Page Unresponsive")
+// ASYNC MATCHING WITH INDEX LOOKUP
 // ==========================================
-async function performGlobalMatchingAsync(inputRows, assets) {
+async function performGlobalMatchingAsync(inputRows) {
   let matches = [];
-  const CHUNK_SIZE = 20; // Process 20 rows at a time
+  const CHUNK_SIZE = 250;
 
   for (let i = 0; i < inputRows.length; i += CHUNK_SIZE) {
     const chunk = inputRows.slice(i, i + CHUNK_SIZE);
-
-    // Process chunk
-    const chunkMatches = chunk.map((row) => matchSingleRow(row, assets));
+    const chunkMatches = chunk.map((row) => matchSingleRowOptimized(row));
     matches = matches.concat(chunkMatches);
 
-    // Update Progress
-    const progress = Math.round(((i + chunk.length) / inputRows.length) * 100);
+    // Matching is phase 2 (50-100%)
+    const progress =
+      50 + Math.round(((i + chunk.length) / inputRows.length) * 50);
     document.getElementById("gfProgressBar").style.width = `${progress}%`;
     updateGfStatus(`Matching... (${i + chunk.length}/${inputRows.length})`);
 
-    // Yield
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 10));
   }
 
-  // Sort Results
   matches.sort((a, b) => {
     const addrDiff = parseFloat(b.addressMatch) - parseFloat(a.addressMatch);
     if (Math.abs(addrDiff) > 0.0001) return addrDiff;
@@ -220,15 +229,23 @@ async function performGlobalMatchingAsync(inputRows, assets) {
   return matches;
 }
 
-function matchSingleRow(row, assets) {
+function matchSingleRowOptimized(row) {
+  const propNameNorm = normalize(row.propertyName);
+  const propAddrNorm = normalize(row.address);
+  const propStateNorm = (row.state || "").trim().toLowerCase();
+
+  let candidates = [];
+  if (propStateNorm && assetsByState[propStateNorm]) {
+    candidates = assetsByState[propStateNorm];
+  } else {
+    candidates = cachedGlobalAssets;
+  }
+
   let bestMatch = null;
   let bestScore = 0;
   let bestAddrScore = 0;
 
-  const propNameNorm = normalize(row.propertyName);
-  const propAddrNorm = normalize(row.address);
-
-  for (let asset of assets) {
+  for (let asset of candidates) {
     if (!asset.name) continue;
 
     const assetNameNorm = normalize(asset.name);
@@ -454,10 +471,12 @@ function downloadGfCSV() {
     const iAddr = (r.address || "").replace(/"/g, '""');
     const iCity = (r.city || "").replace(/"/g, '""');
     const iState = (r.state || "").replace(/"/g, '""');
+
     const mName = (r.matchedAssetName || "").replace(/"/g, '""');
     const mAddr = (r.matchedAssetAddr || "").replace(/"/g, '""');
     const mCity = (r.matchedAssetCity || "").replace(/"/g, '""');
     const mState = (r.matchedAssetState || "").replace(/"/g, '""');
+
     csvContent += `"${iName}","${iAddr}","${iCity}","${iState}",${r.score},${r.matchedAssetId},"${mName}","${mAddr}","${mCity}","${mState}"\n`;
   });
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -470,7 +489,7 @@ function downloadGfCSV() {
   document.body.removeChild(link);
 }
 
-// NEW FUNCTION: Copy Table to Clipboard (TSV)
+// Copy to Clipboard
 function copyGfTable() {
   if (globalFuzzyResults.length === 0) {
     alert("No data");
