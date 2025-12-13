@@ -48,6 +48,9 @@
       <button class="tab-btn" onclick="openTab('tab-assets')">
         Asset Matcher (Fuzzy)
       </button>
+      <button class="tab-btn" onclick="openTab('tab-ref-match')">
+        Reference Matcher
+      </button>
       <button class="tab-btn" onclick="openTab('tab-global-fuzzy')">
         Global Fuzzy Match
       </button>
@@ -466,6 +469,142 @@
                 <th>Matched Engrain Asset ID</th>
                 <th>Matched Name</th>
                 <th>Location</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-ref-match" class="tab-content">
+      <div
+        class="card"
+        style="border-top-left-radius: 0; border-top-right-radius: 0"
+      >
+        <div style="margin-bottom: 20px">
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <label class="section-label">Configuration</label>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                background: #262626;
+                padding: 4px 10px;
+                border-radius: 4px;
+                border: 1px solid var(--border-color);
+              "
+            >
+              <input
+                type="checkbox"
+                id="globalRefSearchCheck"
+                style="cursor: pointer"
+              />
+              <label
+                for="globalRefSearchCheck"
+                style="
+                  font-size: 0.85rem;
+                  cursor: pointer;
+                  color: var(--text-color);
+                "
+                >Global Search (Ignore Account ID)</label
+              >
+            </div>
+          </div>
+          <div class="input-group" style="margin-top: 10px">
+            <input
+              type="text"
+              id="refMatchAccountId"
+              placeholder="Account ID (Required unless Global is checked)"
+            />
+          </div>
+        </div>
+        <hr />
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          "
+        >
+          <label class="section-label"
+            >Bulk Input
+            <div class="tooltip">
+              ⓘ<span class="tooltip-text"
+                >Upload CSV with headers: "Property Name" and/or "Reference
+                ID".</span
+              >
+            </div>
+          </label>
+          <a
+            href="#"
+            id="refMatchTemplateLink"
+            style="font-size: 0.8rem; color: white; text-decoration: none"
+            >Download CSV Template</a
+          >
+        </div>
+        <div class="input-group" style="margin-top: 5px">
+          <input type="file" id="refMatchCsvFile" accept=".csv" />
+          <button id="runRefMatchBtn">Run Reference Match</button>
+        </div>
+
+        <div id="refMatchStatusMsg" class="status" style="margin-top: 20px">
+          Ready.
+        </div>
+        <div class="progress-container" style="margin-top: 10px">
+          <div
+            id="refMatchProgressBar"
+            class="progress-bar"
+            style="
+              height: 20px;
+              width: 0%;
+              background: var(--primary);
+              transition: width 0.3s;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 11px;
+              font-weight: bold;
+              color: white;
+            "
+          >
+            0%
+          </div>
+        </div>
+
+        <div class="header-row" style="margin-top: 30px">
+          <h2>
+            Matched Results
+            <span id="refMatchCount" class="count-badge">0</span>
+          </h2>
+          <div class="btn-group">
+            <button id="copyRefMatchClipBtn" class="secondary-btn">
+              Copy Table
+            </button>
+            <button id="downloadRefMatchBtn" class="secondary-btn">
+              Download CSV
+            </button>
+          </div>
+        </div>
+        <div class="table-scroll-area">
+          <table id="refMatchTable">
+            <thead>
+              <tr>
+                <th width="80">Score</th>
+                <th>Input Ref ID</th>
+                <th>Input Name</th>
+                <th>Matched Engrain ID</th>
+                <th>Matched Name</th>
+                <th>Matched Ref IDs</th>
+                <th>Location</th>
+                <th>Match Method</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -951,5 +1090,6 @@
     <script src="account-assets.js" defer></script>
     <script src="asset-expenses.js" defer></script>
     <script src="global-fuzzy.js" defer></script>
+    <script src="reference-match.js" defer></script>
   </body>
 </html>
