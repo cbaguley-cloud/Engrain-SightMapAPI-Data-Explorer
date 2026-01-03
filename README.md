@@ -57,6 +57,11 @@
   
   * Displays required status and cost amounts/ranges.
 
+**Reference Matcher**
+  * Deep API Scanning: Performs a comprehensive scan by fetching the specific third-party reference data (e.g., Yardi, MRI, RealPage IDs) for every asset in the target list, ensuring high-accuracy   matching beyond just names.
+  * Global vs. Local Search: Users can toggle between scanning a specific Account ID or running a Global search across the entire SightMap dataset.
+  * Batch CSV Processing: Designed for reconciling external spreadsheets; users can upload a CSV with headers Reference ID and Property Name.
+  * Actionable Reporting: Displays not just the match, but how it matched (Method), and lists all third-party keys associated with the found asset.
 
 **Asset References**
 
