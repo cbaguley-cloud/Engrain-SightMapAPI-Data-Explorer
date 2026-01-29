@@ -18,7 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (templateLink) {
     templateLink.addEventListener("click", (e) => {
       e.preventDefault();
-      const csvContent = "asset_id\n7779\n12345";
+      const csvContent = "asset_id";
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
@@ -70,9 +70,9 @@ async function runSingleSearch() {
   document.getElementById("progressBar").style.width = "100%";
 
   if (allMatches.length > 0) {
-    updateStatus(`✅ Done. Found ${allMatches.length} matches.`);
+    updateStatus(`Done. Found ${allMatches.length} matches.`);
   } else {
-    updateStatus(`⚠️ No matches found for styles: ${targetStyles.join(", ")}`);
+    updateStatus(`No matches found for styles: ${targetStyles.join(", ")}`);
   }
   document.getElementById("mapCount").textContent = allMatches.length;
 }
@@ -130,7 +130,7 @@ async function runBulkSearch() {
     }
 
     updateStatus(
-      `✅ Bulk Process Complete. Found ${allMatches.length} total matches.`
+      `Bulk Process Complete. Found ${allMatches.length} total matches.`
     );
   };
 
@@ -162,6 +162,7 @@ async function fetchAndProcessAsset(apiKey, assetId, targetStyles) {
           id: map.id,
           name: map.name,
           style: map.style,
+          tags: map.tags,
         };
         allMatches.push(matchObj);
         addTableRow(matchObj);
@@ -199,6 +200,7 @@ function addTableRow(map) {
             <td>${map.asset_id}</td>
             <td>${map.name}</td>
             <td>${map.id}</td>
+            <td>${map.tags}</td>
             <td><span class="match-tag">${map.style}</span></td>
         </tr>`;
   tableBody.insertAdjacentHTML("beforeend", row);
@@ -232,9 +234,9 @@ function downloadCSV() {
     alert("No data");
     return;
   }
-  let csvContent = "asset_id,map_name,map_id,style\n";
+  let csvContent = "asset_id,map_name,map_id,tags,style\n";
   allMatches.forEach((row) => {
-    csvContent += `${row.asset_id},"${row.name}",${row.id},${row.style}\n`;
+    csvContent += `${row.asset_id},"${row.name}",${row.id},${row.tags},${row.style}\n`;
   });
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
@@ -251,9 +253,9 @@ function copyMapTable() {
     alert("No data");
     return;
   }
-  let text = "Asset ID\tMap Name\tMap ID\tStyle\n";
+  let text = "Asset ID\tMap Name\tMap ID\tTags\tStyle\n";
   allMatches.forEach((r) => {
-    text += `${r.asset_id}\t${r.name}\t${r.id}\t${r.style}\n`;
+    text += `${r.asset_id}\t${r.name}\t${r.id}\t${r.tags}\t${r.style}\n`;
   });
   navigator.clipboard.writeText(text);
   alert("Table copied to clipboard!");

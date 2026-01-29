@@ -38,9 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 
-// ==========================================
-// OPTION A: Single Search (NOW WITH PROGRESS BAR)
-// ==========================================
+// OPTION A: Single Search
 async function runSingleUnitRefSearch() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const assetId = document.getElementById("unitRefAssetId").value.trim();
@@ -53,7 +51,7 @@ async function runSingleUnitRefSearch() {
   resetUnitRefUI();
   updateUnitRefStatus(`Fetching unit references for Asset ${assetId}...`);
 
-  // 1. START ANIMATION (50%)
+  // 1. START PROGRESS BAR ANIMATION (50%)
   document.getElementById("unitRefProgressBar").style.width = "50%";
 
   await processAssetUnitReferences(apiKey, assetId);
@@ -63,16 +61,14 @@ async function runSingleUnitRefSearch() {
 
   if (allUnitReferences.length > 0) {
     updateUnitRefStatus(
-      `✅ Done. Found ${allUnitReferences.length} unit references.`
+      `Done. Found ${allUnitReferences.length} unit references.`
     );
   } else {
     updateUnitRefStatus(`⚠️ No unit references found for Asset ${assetId}.`);
   }
 }
 
-// ==========================================
 // OPTION B: Bulk CSV Search
-// ==========================================
 async function runBulkUnitRefSearch() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const fileInput = document.getElementById("unitRefCsvFile");
@@ -122,16 +118,14 @@ async function runBulkUnitRefSearch() {
     }
 
     updateUnitRefStatus(
-      `✅ Bulk Process Complete. Found ${allUnitReferences.length} total unit references.`
+      `Bulk Process Complete. Found ${allUnitReferences.length} total unit references.`
     );
   };
 
   reader.readAsText(file);
 }
 
-// ==========================================
 // CORE LOGIC
-// ==========================================
 async function processAssetUnitReferences(apiKey, assetId) {
   try {
     const groups = await fetchReferenceGroups(apiKey, assetId);
@@ -214,9 +208,7 @@ async function fetchUnitReferencesForGroup(apiKey, assetId, group) {
   }
 }
 
-// ==========================================
 // UTILITIES & RENDERING
-// ==========================================
 function updateFilterDropdown() {
   const select = document.getElementById("unitRefKeyFilter");
   const currentValue = select.value;

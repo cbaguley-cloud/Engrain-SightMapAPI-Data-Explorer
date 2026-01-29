@@ -60,7 +60,7 @@ async function runSingleAssetSearch() {
   try {
     const allAssets = await fetchAllAssets(apiKey, accountId);
 
-    // UI Polish: Ensure bar is 100% when done
+    // Ensure bar is 100% when done
     updateProgressBar(100);
     updateAssetStatus(`Scanning ${allAssets.length} assets against input...`);
 
@@ -74,15 +74,15 @@ async function runSingleAssetSearch() {
     assetResults = matches;
 
     if (matches[0].score > 0) {
-      updateAssetStatus(`✅ Match found: ${matches[0].matchedName}`);
+      updateAssetStatus(`Match found: ${matches[0].matchedName}`);
     } else {
-      updateAssetStatus("❌ No matches found.");
+      updateAssetStatus("No matches found.");
     }
 
     document.getElementById("fuzzyCount").textContent = matches.length;
   } catch (error) {
     console.error(error);
-    updateAssetStatus(`❌ Error: ${error.message}`);
+    updateAssetStatus(`Error: ${error.message}`);
   }
 }
 
@@ -152,12 +152,12 @@ async function runBulkAssetSearch() {
       assetResults = matches;
 
       updateAssetStatus(
-        `✅ Bulk Process Complete. Processed ${matches.length} rows.`
+        `Bulk Process Complete. Processed ${matches.length} rows.`
       );
       document.getElementById("fuzzyCount").textContent = matches.length;
     } catch (error) {
       console.error(error);
-      updateAssetStatus(`❌ Error: ${error.message}`);
+      updateAssetStatus(`Error: ${error.message}`);
     }
   };
 

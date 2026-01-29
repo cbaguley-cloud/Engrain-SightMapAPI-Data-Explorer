@@ -150,16 +150,16 @@ async function runRefMatch() {
       refMatchResults = matches;
 
       updateRefStatus(
-        `✅ Process Complete. Found ${
+        `Process Complete. Found ${
           matches.filter((m) => m.matchedId).length
         } matches.`
       );
     } catch (error) {
       if (error.name === "AbortError") {
-        updateRefStatus("❌ Cancelled.");
+        updateRefStatus("Cancelled.");
       } else {
         console.error(error);
-        updateRefStatus(`❌ Error: ${error.message}`);
+        updateRefStatus(`Error: ${error.message}`);
       }
     }
   };
@@ -167,9 +167,8 @@ async function runRefMatch() {
   reader.readAsText(file);
 }
 
-// ----------------------------------------------------
+
 // STEP 1: Fetch Basic Asset List (Name, ID)
-// ----------------------------------------------------
 async function fetchAssetList(apiKey, initialUrl, signal) {
   let allAssets = [];
   let nextUrl = initialUrl;
@@ -210,9 +209,8 @@ async function fetchAssetList(apiKey, initialUrl, signal) {
   return allAssets;
 }
 
-// ----------------------------------------------------
+
 // STEP 2: Enrich Assets (Fetch References per Asset)
-// ----------------------------------------------------
 async function enrichAssetsWithReferences(apiKey, assets, signal) {
   let completed = 0;
   const total = assets.length;
@@ -229,7 +227,6 @@ async function enrichAssetsWithReferences(apiKey, assets, signal) {
     await Promise.all(
       batch.map(async (asset) => {
         try {
-          // The endpoint you provided in documentation
           const url = `https://api.sightmap.com/v1/assets/${asset.id}/multifamily/references?per-page=100`;
 
           const res = await fetch(url, {
@@ -269,9 +266,8 @@ async function enrichAssetsWithReferences(apiKey, assets, signal) {
   return assets;
 }
 
-// ----------------------------------------------------
+
 // STEP 3: Matching Logic
-// ----------------------------------------------------
 function performRefMatching(rows, assets) {
   return rows.map((row) => {
     const inputRef = row.refId ? String(row.refId).trim().toLowerCase() : "";
@@ -284,7 +280,7 @@ function performRefMatching(rows, assets) {
       let matchMethod = "";
 
       // A. CHECK REFERENCES (Exact Match)
-      // Asset references are now guaranteed to be populated if they exist
+      // Asset references will be populated if they exist
       let hasRefMatch = false;
       if (inputRef && asset.references && asset.references.length > 0) {
         hasRefMatch = asset.references.some((r) => {
@@ -331,9 +327,8 @@ function performRefMatching(rows, assets) {
   });
 }
 
-// ----------------------------------------------------
+
 // Helpers
-// ----------------------------------------------------
 
 function getAssetRefString(asset) {
   if (!asset || !asset.references || asset.references.length === 0) return "";

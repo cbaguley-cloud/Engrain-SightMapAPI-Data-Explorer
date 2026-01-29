@@ -1,28 +1,55 @@
-let globalFuzzyResults = [];
-let cachedGlobalAssets = [];
-let assetsByState = {}; // THE NEW INDEX
+/* global-fuzzy.js 
+   Handles Global Fuzzy Matching (Name + Address against entire database).
+*/
+
+let gfResults = [];
+let top5Candidates = []; // Stores the top 5 for the modal
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Buttons
+  // Option A: Single
   document
     .getElementById("runGlobalFuzzyBtn")
-    .addEventListener("click", runSingleGlobalFuzzy);
+    .addEventListener("click", runGlobalFuzzyMatch);
+
+  // Option B: Bulk
   document
     .getElementById("bulkGlobalFuzzyBtn")
-    .addEventListener("click", runBulkGlobalFuzzy);
+    .addEventListener("click", runBulkGlobalFuzzyMatch);
+
+  // Utils
   document
     .getElementById("downloadGfBtn")
     .addEventListener("click", downloadGfCSV);
+  document
+    .getElementById("copyGfClipBtn")
+    .addEventListener("click", copyGfTable);
 
-  // NEW: Copy to Clipboard Button
-  const copyClipBtn = document.getElementById("copyGfClipBtn");
-  if (copyClipBtn) copyClipBtn.addEventListener("click", copyGfTable);
+  // Modal Logic
+  const modal = document.getElementById("top5Modal");
+  const btn = document.getElementById("showTop5Btn");
+  const closeSpan = document.getElementsByClassName("close-modal")[0];
 
-  // Template Link
+  if (btn)
+    btn.addEventListener("click", () => {
+      renderTop5Modal();
+      modal.style.display = "block";
+    });
+
+  if (closeSpan)
+    closeSpan.addEventListener("click", () => {
+      modal.style.display = "none";
+    });
+
+  window.addEventListener("click", (event) => {
+    if (event.target == modal) {
+      modal.style.display = "none";
+    }
+  });
+
+  // Template
   document.getElementById("gfTemplateLink").addEventListener("click", (e) => {
     e.preventDefault();
-    const csvContent =
-      "Name,Address,City,State\nThe Lofts,100 Main St,Denver,CO\nSunrise Apts,555 Broad Ave,Austin,TX";
+    const csvContent = "Property Name,Address,City,State";
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -34,63 +61,124 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-async function runSingleGlobalFuzzy() {
+// OPTION A: Single Search (With Top 5 Feature)
+async function runGlobalFuzzyMatch() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const name = document.getElementById("gfName").value.trim();
   const address = document.getElementById("gfAddress").value.trim();
   const city = document.getElementById("gfCity").value.trim();
   const state = document.getElementById("gfState").value.trim();
+  const btn = document.getElementById("showTop5Btn");
 
   if (!apiKey) {
     alert("Please enter API Key.");
     return;
   }
   if (!name) {
-    alert("Please enter a Property Name.");
+    alert("Please enter at least a Property Name.");
     return;
   }
+
+  // Hide Top 5 button while searching
+  if (btn) btn.style.display = "none";
+  top5Candidates = [];
 
   resetGfUI();
   updateGfStatus("Fetching Global Asset List (this may take a moment)...");
 
-  // Start Progress
-  document.getElementById("gfProgressBar").style.width = "20%";
-
   try {
-    // 1. Fetch & Index
-    await getGlobalAssets(apiKey);
+    const allAssets = await fetchGlobalAssets(apiKey);
 
-    document.getElementById("gfProgressBar").style.width = "50%";
+    updateGfProgressBar(100);
+    updateGfStatus(`Scanning ${allAssets.length} assets...`);
 
-    // 2. Prepare Input
-    const inputRows = [
-      { propertyName: name, address: address, city: city, state: state },
-    ];
+    await new Promise((r) => setTimeout(r, 100));
 
-    updateGfStatus(`Scanning database...`);
+    // Calculate score for ALL assets to find Top 5
+    const inputObj = { name, address, city, state };
 
-    // 3. Match
-    const matches = await performGlobalMatchingAsync(inputRows);
+    const scoredAssets = allAssets.map((asset) => {
+      const score = calculateGlobalScore(inputObj, asset);
+      return { asset, score };
+    });
 
-    renderGfResults(matches);
-    globalFuzzyResults = matches;
+    // Sort by score descending
+    scoredAssets.sort((a, b) => b.score - a.score);
 
-    document.getElementById("gfProgressBar").style.width = "100%";
+    // Save Top 5 for the modal
+    top5Candidates = scoredAssets.slice(0, 5);
 
-    if (matches[0].score > 0.8) {
-      updateGfStatus(`✅ Strong match found: ${matches[0].matchedAssetName}`);
+    // Take the best one for the main table
+    const bestMatch = top5Candidates[0];
+
+    // Construct the result object for the main table
+    const result = {
+      inputName: name,
+      inputAddress: address,
+      inputCity: city,
+      inputState: state,
+      score: bestMatch.score.toFixed(3),
+      scoreStyle: getGfScoreStyle(bestMatch.score),
+      matchedId: bestMatch.asset.id,
+      matchedName: bestMatch.asset.name,
+      matchedAddress:
+        bestMatch.asset.address_line1 ||
+        (bestMatch.asset.address ? bestMatch.asset.address.line1 : ""),
+      matchedCity:
+        bestMatch.asset.address_city ||
+        (bestMatch.asset.address ? bestMatch.asset.address.city : ""),
+      matchedState:
+        bestMatch.asset.address_state ||
+        (bestMatch.asset.address ? bestMatch.asset.address.state : ""),
+    };
+
+    gfResults = [result];
+    renderGfResults(gfResults);
+
+    if (bestMatch.score > 0) {
+      updateGfStatus(`Match found: ${result.matchedName}`);
+      // Show the button if we have results
+      if (btn) btn.style.display = "inline-block";
     } else {
-      updateGfStatus("⚠️ Analysis complete. Check results for best guess.");
+      updateGfStatus("No matches found.");
     }
-
-    document.getElementById("gfCount").textContent = matches.length;
   } catch (error) {
     console.error(error);
-    updateGfStatus(`❌ Error: ${error.message}`);
+    updateGfStatus(`Error: ${error.message}`);
   }
 }
 
-async function runBulkGlobalFuzzy() {
+function renderTop5Modal() {
+  const tbody = document.querySelector("#top5Table tbody");
+  tbody.innerHTML = "";
+
+  top5Candidates.forEach((item) => {
+    const s = item.score.toFixed(3);
+    const style = getGfScoreStyle(item.score);
+    const a = item.asset;
+    const addr = a.address_line1 || (a.address ? a.address.line1 : "");
+    const loc =
+      (a.address_city || (a.address ? a.address.city : "")) +
+      ", " +
+      (a.address_state || (a.address ? a.address.state : ""));
+
+    const row = `
+            <tr>
+                <td><span style="display:inline-block; padding:4px 8px; border-radius:4px; font-weight:bold; ${style}">${s}</span></td>
+                <td style="font-family:monospace; color:var(--accent-light);">${
+                  a.id
+                }</td>
+                <td>${a.name}</td>
+                <td>${addr || "-"}</td>
+                <td>${loc}</td>
+            </tr>
+        `;
+    tbody.insertAdjacentHTML("beforeend", row);
+  });
+}
+
+// OPTION B: Bulk Search
+async function runBulkGlobalFuzzyMatch() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const fileInput = document.getElementById("gfCsvFile");
 
@@ -107,399 +195,276 @@ async function runBulkGlobalFuzzy() {
   const reader = new FileReader();
 
   reader.onload = async function (e) {
-    const csvText = e.target.result;
-    const inputRows = parseGfCSV(csvText);
+    const lines = e.target.result.split(/\r?\n/).filter(Boolean);
+    if (
+      lines[0].toLowerCase().includes("name") ||
+      lines[0].toLowerCase().includes("address")
+    )
+      lines.shift();
+
+    const inputRows = lines.map((line) => {
+      const parts = line.split(",");
+      return {
+        name: parts[0]?.trim() || "",
+        address: parts[1]?.trim() || "",
+        city: parts[2]?.trim() || "",
+        state: parts[3]?.trim() || "",
+      };
+    });
 
     if (inputRows.length === 0) {
-      alert("No valid rows found.");
+      alert("No valid rows.");
       return;
     }
 
     resetGfUI();
+    // Hide single search button in bulk mode
+    const btn = document.getElementById("showTop5Btn");
+    if (btn) btn.style.display = "none";
+
     updateGfStatus("Fetching Global Asset List...");
-    document.getElementById("gfProgressBar").style.width = "10%";
 
     try {
-      // 1. Fetch & Index
-      await getGlobalAssets(apiKey);
+      const allAssets = await fetchGlobalAssets(apiKey);
+      updateGfProgressBar(100);
+      await new Promise((r) => setTimeout(r, 100));
 
-      updateGfStatus(`Optimizing search index...`);
-      await new Promise((r) => setTimeout(r, 50));
+      updateGfStatus(`Processing ${inputRows.length} rows...`);
 
-      // 2. Match
-      updateGfStatus(
-        `Scanning ${cachedGlobalAssets.length} assets against ${inputRows.length} inputs...`
-      );
-      const matches = await performGlobalMatchingAsync(inputRows);
+      const matches = inputRows.map((row) => {
+        let best = { score: 0, asset: null };
 
+        // Optimization: Logic identical to single, but loop kept for bulk speed
+        for (let asset of allAssets) {
+          const score = calculateGlobalScore(row, asset);
+          if (score > best.score) best = { score, asset };
+        }
+
+        let mId = "",
+          mName = "",
+          mAddr = "",
+          mCity = "",
+          mState = "";
+        if (best.asset) {
+          mId = best.asset.id;
+          mName = best.asset.name;
+          mAddr =
+            best.asset.address_line1 ||
+            (best.asset.address ? best.asset.address.line1 : "");
+          mCity =
+            best.asset.address_city ||
+            (best.asset.address ? best.asset.address.city : "");
+          mState =
+            best.asset.address_state ||
+            (best.asset.address ? best.asset.address.state : "");
+        }
+
+        return {
+          inputName: row.name,
+          inputAddress: row.address,
+          inputCity: row.city,
+          inputState: row.state,
+          score: best.score.toFixed(3),
+          scoreStyle: getGfScoreStyle(best.score),
+          matchedId: mId,
+          matchedName: mName,
+          matchedAddress: mAddr,
+          matchedCity: mCity,
+          matchedState: mState,
+        };
+      });
+
+      // Sort by best matches first
+      matches.sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
+
+      gfResults = matches;
       renderGfResults(matches);
-      globalFuzzyResults = matches;
-
-      document.getElementById("gfProgressBar").style.width = "100%";
-      updateGfStatus(
-        `✅ Bulk Process Complete. Processed ${matches.length} rows.`
-      );
-      document.getElementById("gfCount").textContent = matches.length;
+      updateGfStatus(`Bulk Complete. Processed ${matches.length} rows.`);
     } catch (error) {
       console.error(error);
-      updateGfStatus(`❌ Error: ${error.message}`);
+      updateGfStatus(`Error: ${error.message}`);
     }
   };
-
   reader.readAsText(file);
 }
 
-// ==========================================
-// API LOGIC + INDEXING (Optimized)
-// ==========================================
-async function getGlobalAssets(apiKey) {
-  if (cachedGlobalAssets.length > 0) return cachedGlobalAssets;
-
-  let assets = [];
-  assetsByState = {};
-
+async function fetchGlobalAssets(apiKey) {
+  let allAssets = [];
   let nextUrl = `https://api.sightmap.com/v1/assets?per-page=500`;
-  let pageCount = 0;
+  let totalCount = 0;
 
   while (nextUrl) {
     const response = await fetch(nextUrl, {
       method: "GET",
       headers: { "API-Key": apiKey },
     });
-
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
-
     const json = await response.json();
-    const data = json.data || [];
+    allAssets = allAssets.concat(json.data || []);
 
-    for (const item of data) {
-      assets.push(item);
-      const stateKey = (item.address_state || "").trim().toLowerCase();
-      if (!assetsByState[stateKey]) {
-        assetsByState[stateKey] = [];
-      }
-      assetsByState[stateKey].push(item);
-    }
-
+    if (json.paging && json.paging.total_count)
+      totalCount = json.paging.total_count;
     nextUrl = json.paging ? json.paging.next_url : null;
 
-    pageCount++;
-    // Fetching is phase 1 (0-50%)
-    const fakeProgress = Math.min(pageCount * 5, 50);
-    document.getElementById("gfProgressBar").style.width = `${fakeProgress}%`;
-
+    let pct = totalCount
+      ? Math.floor((allAssets.length / totalCount) * 100)
+      : nextUrl
+      ? 50
+      : 100;
+    updateGfProgressBar(pct);
     updateGfStatus(
-      `Fetching & Indexing global database... (Loaded ${assets.length} assets)`
+      `Fetching global DB... ${allAssets.length} / ${totalCount || "?"}`
     );
-
     await new Promise((r) => setTimeout(r, 0));
   }
-
-  cachedGlobalAssets = assets;
-  return assets;
+  return allAssets;
 }
 
-// ==========================================
-// ASYNC MATCHING WITH INDEX LOOKUP
-// ==========================================
-async function performGlobalMatchingAsync(inputRows) {
-  let matches = [];
-  const CHUNK_SIZE = 250;
+function calculateGlobalScore(input, asset) {
+  const iName = normalizeGf(input.name);
+  const iAddr = normalizeGf(input.address);
+  const iCity = normalizeGf(input.city);
+  const iState = normalizeGf(input.state);
 
-  for (let i = 0; i < inputRows.length; i += CHUNK_SIZE) {
-    const chunk = inputRows.slice(i, i + CHUNK_SIZE);
-    const chunkMatches = chunk.map((row) => matchSingleRowOptimized(row));
-    matches = matches.concat(chunkMatches);
+  const aName = normalizeGf(asset.name);
+  const aAddr = normalizeGf(asset.address ? asset.address.line1 : "");
+  const aCity = normalizeGf(
+    asset.address_city || (asset.address ? asset.address.city : "")
+  );
+  const aState = normalizeGf(
+    asset.address_state || (asset.address ? asset.address.state : "")
+  );
 
-    // Matching is phase 2 (50-100%)
-    const progress =
-      50 + Math.round(((i + chunk.length) / inputRows.length) * 50);
-    document.getElementById("gfProgressBar").style.width = `${progress}%`;
-    updateGfStatus(`Matching... (${i + chunk.length}/${inputRows.length})`);
+  // Scoring Weights
+  // Name: 50%, Address: 30%, City: 15%, State: 5%
+  const nameScore = combinedScoreGf(iName, aName);
 
-    await new Promise((r) => setTimeout(r, 10));
-  }
+  let addrScore = 0;
+  if (iAddr && aAddr) addrScore = similarityGf(iAddr, aAddr);
+  else if (!iAddr) addrScore = 1; // Ignore if input missing
 
-  matches.sort((a, b) => {
-    const addrDiff = parseFloat(b.addressMatch) - parseFloat(a.addressMatch);
-    if (Math.abs(addrDiff) > 0.0001) return addrDiff;
-    return parseFloat(b.score) - parseFloat(a.score);
-  });
+  let cityScore = 0;
+  if (iCity && aCity) cityScore = similarityGf(iCity, aCity);
+  else if (!iCity) cityScore = 1;
 
-  return matches;
+  let stateScore = 0;
+  if (iState && aState) stateScore = iState === aState ? 1 : 0;
+  else if (!iState) stateScore = 1;
+
+  // Adjust weights based on what was provided
+  let total =
+    nameScore * 0.5 + addrScore * 0.3 + cityScore * 0.15 + stateScore * 0.05;
+  return total;
 }
 
-function matchSingleRowOptimized(row) {
-  const propNameNorm = normalize(row.propertyName);
-  const propAddrNorm = normalize(row.address);
-  const propStateNorm = (row.state || "").trim().toLowerCase();
-
-  let candidates = [];
-  if (propStateNorm && assetsByState[propStateNorm]) {
-    candidates = assetsByState[propStateNorm];
-  } else {
-    candidates = cachedGlobalAssets;
-  }
-
-  let bestMatch = null;
-  let bestScore = 0;
-  let bestAddrScore = 0;
-
-  for (let asset of candidates) {
-    if (!asset.name) continue;
-
-    const assetNameNorm = normalize(asset.name);
-    const assetAddrNorm = normalize(asset.address_line1 || "");
-
-    const score = combinedScore(
-      propNameNorm,
-      assetNameNorm,
-      propAddrNorm,
-      assetAddrNorm
-    );
-    const addrSim = levenshteinSimilarity(propAddrNorm, assetAddrNorm);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestAddrScore = addrSim;
-      bestMatch = asset;
-    }
-  }
-
-  let matchedAssetName = "No match found";
-  let matchedAssetAddr = "";
-  let matchedAssetId = "";
-  let matchedAssetCity = "";
-  let matchedAssetState = "";
-  let scoreColor = "background-color:var(--col-slate);color:white;";
-
-  if (bestMatch) {
-    matchedAssetId = bestMatch.id;
-    matchedAssetAddr = bestMatch.address_line1 || "";
-    matchedAssetCity = bestMatch.address_city || "";
-    matchedAssetState = bestMatch.address_state || "";
-
-    if (bestScore >= 0.85) {
-      matchedAssetName = bestMatch.name;
-      scoreColor = "background-color:#059669;color:white;";
-    } else if (bestScore >= 0.6) {
-      matchedAssetName = `Guess: ${bestMatch.name}`;
-      scoreColor = "background-color:#d97706;color:white;";
-    } else {
-      matchedAssetName = `Weak: ${bestMatch.name}`;
-      scoreColor = "background-color:#b91c1c;color:white;";
-    }
-  }
-
-  return {
-    propertyName: row.propertyName,
-    address: row.address,
-    city: row.city || "",
-    state: row.state || "",
-    matchedAssetName,
-    matchedAssetAddr,
-    matchedAssetCity,
-    matchedAssetState,
-    matchedAssetId,
-    score: bestScore.toFixed(3),
-    addressMatch: bestAddrScore.toFixed(3),
-    scoreStyle: scoreColor,
-  };
-}
-
-// ... [Normalization helpers] ...
-const abbreviationMap = {
-  n: "north",
-  "n.": "north",
-  s: "south",
-  "s.": "south",
-  e: "east",
-  "e.": "east",
-  w: "west",
-  "w.": "west",
-  st: "street",
-  "st.": "street",
-  rd: "road",
-  "rd.": "road",
-  ave: "avenue",
-  "ave.": "avenue",
-  blvd: "boulevard",
-  "blvd.": "boulevard",
-  ln: "lane",
-  "ln.": "lane",
-  dr: "drive",
-  "dr.": "drive",
-  ct: "court",
-  "ct.": "court",
-  pl: "place",
-  "pl.": "place",
-  sq: "square",
-  "sq.": "square",
-  pkwy: "parkway",
-  cir: "circle",
-  apt: "apartment",
-  bldg: "building",
-  unit: "unit",
-};
-
-function normalize(str) {
+// --- Helpers ---
+function normalizeGf(str) {
   if (!str) return "";
-  str = str
+  return str
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[.,'’"]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-  let words = str.split(" ");
-  const result = [];
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    const next = words[i + 1];
-    const combined = `${w} ${next}`;
-    if (abbreviationMap[combined]) {
-      result.push(abbreviationMap[combined]);
-      i++;
-    } else {
-      result.push(abbreviationMap[w] || w);
-    }
-  }
-  return result.join(" ");
 }
-
-function levenshteinSimilarity(a, b) {
+function levenshteinGf(a, b) {
+  if (a === b) return 0;
+  if (!a || !b) return Math.max(a.length, b.length);
+  const v0 = new Array(b.length + 1);
+  const v1 = new Array(b.length + 1);
+  for (let i = 0; i <= b.length; i++) v0[i] = i;
+  for (let i = 0; i < a.length; i++) {
+    v1[0] = i + 1;
+    for (let j = 0; j < b.length; j++) {
+      const cost = a[i] === b[j] ? 0 : 1;
+      v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
+    }
+    for (let j = 0; j <= b.length; j++) v0[j] = v1[j];
+  }
+  return v1[b.length];
+}
+function similarityGf(a, b) {
   if (!a || !b) return 0;
-  const len = Math.max(a.length, b.length);
-  if (len === 0) return 1.0;
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) == a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
-        );
-      }
-    }
-  }
-  return 1 - matrix[b.length][a.length] / len;
+  return 1 - levenshteinGf(a, b) / Math.max(a.length, b.length);
 }
-
-function tokenMatchScore(str1, str2) {
-  const tokens1 = new Set(normalize(str1).split(" "));
-  const tokens2 = new Set(normalize(str2).split(" "));
-  const matches = [...tokens1].filter((t) => tokens2.has(t)).length;
-  return matches / Math.max(tokens1.size, 1);
+function tokenMatchScoreGf(a, b) {
+  const t1 = new Set(normalizeGf(a).split(" "));
+  const t2 = new Set(normalizeGf(b).split(" "));
+  const inter = [...t1].filter((t) => t2.has(t));
+  return inter.length / Math.max(t1.size, 1);
 }
-
-function numberMatchBonus(a, b) {
-  const numsA = a.match(/\d+/g) || [];
-  const numsB = b.match(/\d+/g) || [];
-  const matches = numsA.filter((n) => numsB.includes(n)).length;
-  return matches > 0 ? 0.1 : 0;
+function combinedScoreGf(a, b) {
+  return similarityGf(a, b) * 0.6 + tokenMatchScoreGf(a, b) * 0.4;
 }
-
-function combinedScore(propName, assetName, propAddr, assetAddr) {
-  const nameLev = levenshteinSimilarity(propName, assetName);
-  const nameToken = tokenMatchScore(propName, assetName);
-  const addrLev = levenshteinSimilarity(propAddr, assetAddr);
-  const addrToken = tokenMatchScore(propAddr, assetAddr);
-  const numBonus = numberMatchBonus(propAddr, assetAddr);
-  return Math.min(
-    1,
-    nameLev * 0.4 + nameToken * 0.3 + addrLev * 0.2 + addrToken * 0.1 + numBonus
-  );
-}
-
-function parseGfCSV(csvText) {
-  const lines = csvText.split(/\r\n|\n/).filter((line) => line.trim() !== "");
-  if (
-    lines[0].toLowerCase().includes("name") ||
-    lines[0].toLowerCase().includes("address")
-  ) {
-    lines.shift();
-  }
-  return lines.map((line) => {
-    const parts = line.split(",");
-    return {
-      propertyName: parts[0] ? parts[0].trim() : "",
-      address: parts[1] ? parts[1].trim() : "",
-      city: parts[2] ? parts[2].trim() : "",
-      state: parts[3] ? parts[3].trim() : "",
-    };
-  });
+function getGfScoreStyle(score) {
+  const s = parseFloat(score);
+  if (s >= 0.9) return "background-color:#22c55e;color:white;";
+  if (s >= 0.8) return "background-color:#eab308;color:black;";
+  if (s >= 0.6) return "background-color:#f97316;color:white;";
+  return "background-color:#52525b;color:white;";
 }
 
 function renderGfResults(matches) {
-  const tableBody = document.querySelector("#gfTable tbody");
-  tableBody.innerHTML = "";
-  matches.forEach((match) => {
-    const row = `<tr><td><span class="match-tag" style="${match.scoreStyle} border:none;">${match.score}</span></td><td>${match.propertyName}</td><td>${match.address}</td><td>${match.city}</td><td>${match.state}</td><td style="font-family:monospace; color:var(--accent-light);">${match.matchedAssetId}</td><td style="font-weight:600;">${match.matchedAssetName}</td><td>${match.matchedAssetAddr}</td><td>${match.matchedAssetCity}</td><td>${match.matchedAssetState}</td></tr>`;
-    tableBody.insertAdjacentHTML("beforeend", row);
-  });
+  const tbody = document.querySelector("#gfTable tbody");
+  tbody.innerHTML = "";
   document.getElementById("gfCount").textContent = matches.length;
+  matches.forEach((m) => {
+    const row = `<tr>
+            <td><span style="display:inline-block; padding:4px 8px; border-radius:4px; font-weight:bold; ${m.scoreStyle}">${m.score}</span></td>
+            <td>${m.inputName}</td>
+            <td>${m.inputAddress}</td>
+            <td>${m.inputCity}</td>
+            <td>${m.inputState}</td>
+            <td style="font-family:monospace; color:var(--accent-light);">${m.matchedId}</td>
+            <td>${m.matchedName}</td>
+            <td>${m.matchedAddress}</td>
+            <td>${m.matchedCity}</td>
+            <td>${m.matchedState}</td>
+        </tr>`;
+    tbody.insertAdjacentHTML("beforeend", row);
+  });
 }
 
 function resetGfUI() {
-  globalFuzzyResults = [];
+  gfResults = [];
   document.querySelector("#gfTable tbody").innerHTML = "";
-  document.getElementById("gfProgressBar").style.width = "0%";
+  updateGfProgressBar(0);
   document.getElementById("gfCount").textContent = "0";
 }
-
 function updateGfStatus(msg) {
   document.getElementById("gfStatusMsg").textContent = msg;
 }
-
-function downloadGfCSV() {
-  if (globalFuzzyResults.length === 0) {
-    alert("No data");
-    return;
-  }
-  let csvContent =
-    "Input_Name,Input_Address,Input_City,Input_State,Match_Score,Matched_ID,Matched_Name,Matched_Address,Matched_City,Matched_State\n";
-  globalFuzzyResults.forEach((r) => {
-    const iName = (r.propertyName || "").replace(/"/g, '""');
-    const iAddr = (r.address || "").replace(/"/g, '""');
-    const iCity = (r.city || "").replace(/"/g, '""');
-    const iState = (r.state || "").replace(/"/g, '""');
-
-    const mName = (r.matchedAssetName || "").replace(/"/g, '""');
-    const mAddr = (r.matchedAssetAddr || "").replace(/"/g, '""');
-    const mCity = (r.matchedAssetCity || "").replace(/"/g, '""');
-    const mState = (r.matchedAssetState || "").replace(/"/g, '""');
-
-    csvContent += `"${iName}","${iAddr}","${iCity}","${iState}",${r.score},${r.matchedAssetId},"${mName}","${mAddr}","${mCity}","${mState}"\n`;
-  });
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  const url = URL.createObjectURL(blob);
-  link.setAttribute("href", url);
-  link.setAttribute("download", "global_fuzzy_matches.csv");
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+function updateGfProgressBar(pct) {
+  const bar = document.getElementById("gfProgressBar");
+  if (bar) bar.style.width = pct + "%";
 }
 
-// Copy to Clipboard
-function copyGfTable() {
-  if (globalFuzzyResults.length === 0) {
+function downloadGfCSV() {
+  if (gfResults.length === 0) {
     alert("No data");
     return;
   }
-  let text =
-    "Score\tInput Name\tInput Address\tInput City\tInput State\tMatched ID\tMatched Name\tMatched Address\tMatched City\tMatched State\n";
-  globalFuzzyResults.forEach((r) => {
-    text += `${r.score}\t${r.propertyName}\t${r.address}\t${r.city}\t${r.state}\t${r.matchedAssetId}\t${r.matchedAssetName}\t${r.matchedAssetAddr}\t${r.matchedAssetCity}\t${r.matchedAssetState}\n`;
+  let csv =
+    "Score,InputName,InputAddress,InputCity,InputState,MatchedID,MatchedName,MatchedAddress,MatchedCity,MatchedState\n";
+  gfResults.forEach((r) => {
+    csv += `${r.score},"${r.inputName}","${r.inputAddress}","${r.inputCity}","${r.inputState}",${r.matchedId},"${r.matchedName}","${r.matchedAddress}","${r.matchedCity}","${r.matchedState}"\n`;
+  });
+  const blob = new Blob([csv], { type: "text/csv" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "global_fuzzy_results.csv";
+  link.click();
+}
+function copyGfTable() {
+  if (gfResults.length === 0) {
+    alert("No data");
+    return;
+  }
+  let text = "Score\tInputName\tInputAddr\tMatchID\tMatchName\tMatchAddr\n";
+  gfResults.forEach((r) => {
+    text += `${r.score}\t${r.inputName}\t${r.inputAddress}\t${r.matchedId}\t${r.matchedName}\t${r.matchedAddress}\n`;
   });
   navigator.clipboard.writeText(text);
-  alert("Table copied to clipboard!");
+  alert("Copied");
 }

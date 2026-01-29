@@ -63,6 +63,9 @@
       <button class="tab-btn" onclick="openTab('tab-unit-refs')">
         Unit References
       </button>
+      <button class="tab-btn" onclick="openTab('tab-embed-lookup')">
+        Embed Lookup
+      </button>
     </div>
 
     <div id="tab-maps" class="tab-content active">
@@ -159,6 +162,19 @@
             </div>
           </div>
         </div>
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Map Hunter</h3>
+            <ul>
+              <li>
+                Search for specific Map Styles (e.g., c, f.1, d) associated with
+                an Asset ID.
+              </li>
+              <li>Supports single lookup or Bulk CSV Upload.</li>
+              <li>Exports results to CSV or JSON.</li>
+            </ul>
+          </span>
+        </div>
         <div id="statusMsg" class="status">Ready.</div>
         <div
           id="progressBar"
@@ -187,6 +203,7 @@
                 <th>Asset ID</th>
                 <th>Map Name</th>
                 <th>Map ID</th>
+                <th>Tag</th>
                 <th>Style</th>
               </tr>
             </thead>
@@ -236,6 +253,19 @@
             />
           </div>
           <button id="fetchListBtn">Fetch & Filter</button>
+        </div>
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Asset List (Global)</h3>
+            <ul>
+              <li>
+                Fetches the entire list of allowed assets for the provided API
+                Key.
+              </li>
+              <li>Includes Local Filtering for City, State, and Tags.</li>
+              <li>Displays Asset ID, Name, Address, and Tags.</li>
+            </ul>
+          </span>
         </div>
         <div id="listStatusMsg" class="status">Ready.</div>
         <div
@@ -321,6 +351,22 @@
           <select id="acctFilterTag" disabled>
             <option value="ALL">All Tags</option>
           </select>
+        </div>
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Account Assets</h3>
+            <ul>
+              <li>Scopes the asset list search to a specific Account ID.</li>
+              <li>
+                Features Dynamic Dropdown Filters that auto-populate based on
+                the returned data.
+              </li>
+              <li>
+                Returns a list of all assets associated with the specified
+                account.
+              </li>
+            </ul>
+          </span>
         </div>
         <div id="acctAssetStatusMsg" class="status" style="margin-top: 15px">
           Ready.
@@ -433,6 +479,26 @@
               <button id="assetBulkBtn">Run Fuzzy Match</button>
             </div>
           </div>
+        </div>
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Asset Matcher (Fuzzy)</h3>
+            <ul>
+              <li>Scopes the asset search to a specific Account ID.</li>
+              <li>
+                Features Dynamic Dropdown Filters that auto-populate based on
+                the returned data.
+              </li>
+              <li>
+                Performs advanced fuzzy matching (Levenshtein distance + Token
+                matching) against assets within a specific account.
+              </li>
+              <li>
+                Ideal for reconciling a messy list of property names against the
+                Atlas database for a specific consumer account.
+              </li>
+            </ul>
+          </span>
         </div>
         <div id="assetStatusMsg" class="status" style="margin-top: 20px">
           Ready to scan account.
@@ -553,6 +619,39 @@
         <div class="input-group" style="margin-top: 5px">
           <input type="file" id="refMatchCsvFile" accept=".csv" />
           <button id="runRefMatchBtn">Run Reference Match</button>
+        </div>
+
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Reference Matcher</h3>
+            <ul>
+              <li>
+                Deep Scan Capability: Unlike standard searches, this tool
+                iterates through the asset list and individually fetches
+                third-party integrations (Yardi, RealPage, etc.) using the
+                <code>/multifamily/references</code> endpoint.
+              </li>
+              <li>
+                Hybrid Matching Logic: Prioritizes Exact Reference ID matches
+                (100% score) first. If no ID is provided or found, it falls back
+                to Fuzzy Name matching (Levenshtein + Token).
+              </li>
+              <li>
+                Flexible Scope: Supports both Account-Specific searches (scoped
+                to one ID) and Global searches (ignores Account ID).
+              </li>
+              <li>
+                Bulk Reconciliation: Accepts CSV uploads containing "Reference
+                ID" and "Property Name" columns to batch-process external data
+                against the Atlas database.
+              </li>
+              <li>
+                Detailed Export: Results include the specific matched Reference
+                IDs (Key: Value pairs), match confidence scores, and location
+                data, downloadable as CSV.
+              </li>
+            </ul>
+          </span>
         </div>
 
         <div id="refMatchStatusMsg" class="status" style="margin-top: 20px">
@@ -677,6 +776,30 @@
             </div>
           </div>
         </div>
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Global Fuzzy Match</h3>
+            <ul>
+              <li>
+                Matches a Property Name + Address against the entire global
+                Atlas database.
+              </li>
+              <li>Does not require an Account ID.</li>
+              <li>
+                Performs advanced fuzzy matching (Levenshtein distance + Token
+                matching).
+              </li>
+              <li>
+                Uses advanced address normalization (e.g., matching "St" to
+                "Street").
+              </li>
+              <li>
+                Ideal for reconciling a messy list of property names and
+                addresses against the global Atlas database.
+              </li>
+            </ul>
+          </span>
+        </div>
         <div id="gfStatusMsg" class="status" style="margin-top: 20px">
           Ready to scan global database.
         </div>
@@ -690,10 +813,21 @@
             margin-top: 10px;
           "
         ></div>
+
         <div class="header-row" style="margin-top: 30px">
-          <h2>
-            Global Match Results <span id="gfCount" class="count-badge">0</span>
-          </h2>
+          <div style="display: flex; align-items: center; gap: 15px">
+            <h2 style="margin: 0">
+              Global Match Results
+              <span id="gfCount" class="count-badge">0</span>
+            </h2>
+            <button
+              id="showTop5Btn"
+              class="btn-outline"
+              style="display: none; background-color: var(--primary)"
+            >
+              Show Top 5 Candidates
+            </button>
+          </div>
           <div class="btn-group">
             <button id="copyGfClipBtn" class="secondary-btn">Copy Table</button>
             <button id="downloadGfBtn" class="secondary-btn">
@@ -701,6 +835,7 @@
             </button>
           </div>
         </div>
+
         <div class="table-scroll-area">
           <table id="gfTable">
             <thead>
@@ -802,6 +937,22 @@
           <select id="expFilterFreq" disabled>
             <option value="ALL">All Frequencies</option>
           </select>
+        </div>
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Asset Expenses</h3>
+            <ul>
+              <li>
+                Retrieves all expenses (fees, parking, pets) for a specific
+                Asset ID.
+              </li>
+              <li>
+                Includes a Multi-Filter System to narrow down by Type, Category,
+                or Frequency.
+              </li>
+              <li>Displays required status and cost amounts/ranges.</li>
+            </ul>
+          </span>
         </div>
         <div id="expStatusMsg" class="status" style="margin-top: 15px">
           Ready.
@@ -909,6 +1060,18 @@
             </div>
           </div>
         </div>
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Asset References</h3>
+            <ul>
+              <li>
+                Lists third-party references (e.g., Yardi, RealPage) mapped to
+                an asset.
+              </li>
+              <li>Returns the Reference ID, Key, and Value.</li>
+            </ul>
+          </span>
+        </div>
         <div id="refStatusMsg" class="status">Ready.</div>
         <div
           id="refProgressBar"
@@ -1009,6 +1172,20 @@
             </div>
           </div>
         </div>
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Unit References</h3>
+            <ul>
+              <li>
+                Fetches specific Unit ID references for third-party systems.
+              </li>
+              <li>
+                Uses a 2-step process: First fetches Reference Groups, then
+                iterates to find all unit keys.
+              </li>
+            </ul>
+          </span>
+        </div>
         <div id="unitRefStatusMsg" class="status">Ready.</div>
         <div
           id="unitRefProgressBar"
@@ -1070,6 +1247,84 @@
       </div>
     </div>
 
+    <div id="tab-embed-lookup" class="tab-content">
+      <div
+        class="card"
+        style="border-top-left-radius: 0; border-top-right-radius: 0"
+      >
+        <div class="search-section">
+          <h3>Reverse Lookup: Find Asset from Embed URL</h3>
+          <div class="input-group">
+            <input
+              type="text"
+              id="embedUrlInput"
+              placeholder="e.g. https://sightmap.com/embed/960p78rdw7n"
+              style="width: 400px"
+            />
+            <button id="findEmbedBtn" class="primary-btn">
+              Find Account & Asset
+            </button>
+          </div>
+          <div id="embedStatus" class="status-msg"></div>
+
+          <div
+            id="embedResultContainer"
+            style="
+              margin-top: 15px;
+              display: none;
+              border: 1px solid #ccc;
+              padding: 15px;
+              background: #f9f9f9;
+              border-radius: 4px;
+            "
+          >
+            <p>
+              <strong>Account ID:</strong>
+              <span id="resAccountId" style="color: #333"></span>
+            </p>
+            <p>
+              <strong>Account Name:</strong>
+              <span id="resAccountName" style="color: #333"></span>
+            </p>
+            <p>
+              <strong>Asset ID:</strong>
+              <span
+                id="resAssetId"
+                style="color: var(--primary); font-weight: bold"
+              ></span>
+            </p>
+            <p>
+              <strong>Embed Name:</strong>
+              <span id="resEmbedName" style="color: #333"></span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="top5Modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Top 5 Match Candidates</h3>
+          <span class="close-modal">&times;</span>
+        </div>
+        <div class="table-scroll-area">
+          <table id="top5Table">
+            <thead>
+              <tr>
+                <th>Score</th>
+                <th>Matched ID</th>
+                <th>Name</th>
+                <th>Address</th>
+                <th>City, State</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <script>
       function openTab(tabId) {
         document
@@ -1091,5 +1346,6 @@
     <script src="asset-expenses.js" defer></script>
     <script src="global-fuzzy.js" defer></script>
     <script src="reference-match.js" defer></script>
+    <script src="embed-matcher.js" defer></script>
   </body>
 </html>
