@@ -1,12 +1,22 @@
 // GLOBAL HASH INDEX
-const globalEmbedIndex = new Map();
+let globalEmbedIndex = new Map();
 let isIndexBuilt = false;
+const CACHE_KEY = "engrain_embed_data_v1";
 
 document.addEventListener("DOMContentLoaded", () => {
   const embedBtn = document.getElementById("findEmbedBtn");
+  const resetBtn = document.getElementById("resetCacheBtn");
+
   if (embedBtn) embedBtn.addEventListener("click", runEmbedSearch);
+  if (resetBtn) resetBtn.addEventListener("click", forceReIndex);
+
+  // 1. Try to load cache immediately on page load
+  loadIndexFromDisk();
 });
 
+// ==========================================
+// MAIN FUNCTION
+// ==========================================
 async function runEmbedSearch() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const targetUrl = document.getElementById("embedUrlInput").value.trim();
@@ -22,21 +32,22 @@ async function runEmbedSearch() {
     return;
   }
 
-  // 1. CHECK INDEX
+  // 2. FAST PATH: Check Cache (Memory or Disk)
   if (isIndexBuilt) {
-    console.log("Checking Cache Index...");
+    console.log("Checking Index...");
     const cachedMatch = globalEmbedIndex.get(targetUrl);
     if (cachedMatch) {
-      statusDiv.textContent = "Match found in Cache!";
+      statusDiv.textContent = "✅ Match found in Cache (Instant)!";
       displayEmbedResult(cachedMatch);
     } else {
-      statusDiv.textContent = "URL not found in cached index.";
+      statusDiv.textContent =
+        "URL not found in cached index. Try 'Force Re-Index' if this is a new unit.";
       resultDiv.style.display = "none";
     }
     return;
   }
 
-  // 2. BUILD INDEX
+  // 3. SLOW PATH: Build Index from API
   resultDiv.style.display = "none";
   statusDiv.textContent = "Initializing Index Build...";
 
@@ -50,13 +61,12 @@ async function runEmbedSearch() {
 
     statusDiv.textContent = `Building Index: Scanning ${accounts.length} accounts...`;
 
-    // Process in batches
-    const BATCH_SIZE = 15;
+    // Process in batches of 5
+    const BATCH_SIZE = 5;
     let processedCount = 0;
 
     for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
       const batch = accounts.slice(i, i + BATCH_SIZE);
-
       const batchPromises = batch.map((acc) =>
         fetchAndIndexAccount(apiKey, acc)
       );
@@ -64,26 +74,29 @@ async function runEmbedSearch() {
 
       processedCount += batch.length;
 
-      // Update UI
       const percent = Math.round((processedCount / accounts.length) * 100);
-      statusDiv.textContent = `Indexing: ${percent}% complete (${processedCount}/${accounts.length} accounts scanned)...`;
+      statusDiv.textContent = `Indexing: ${percent}% complete (${processedCount}/${accounts.length} accounts)...`;
 
-      // Early exit if found (Optional)
-      if (globalEmbedIndex.has(targetUrl)) {
-        statusDiv.textContent = "Match Found during indexing!";
+      // Optional: Early display if found, but keep building for cache completeness
+      if (
+        globalEmbedIndex.has(targetUrl) &&
+        resultDiv.style.display === "none"
+      ) {
         displayEmbedResult(globalEmbedIndex.get(targetUrl));
+        statusDiv.textContent = `Match Found! Finishing index build...`;
       }
     }
 
-    isIndexBuilt = true;
+    // 4. Save to Disk when done
+    saveIndexToDisk();
 
-    // Final Lookup
+    // Final check
     const match = globalEmbedIndex.get(targetUrl);
     if (match) {
-      statusDiv.textContent = "Index Complete. Match Found!";
+      statusDiv.textContent = "Index Complete & Saved. Match Found!";
       displayEmbedResult(match);
     } else {
-      statusDiv.textContent = `Index Complete. Scanned ${globalEmbedIndex.size} embeds, but URL not found.`;
+      statusDiv.textContent = `Index Complete & Saved. Scanned ${globalEmbedIndex.size} embeds, but URL not found.`;
     }
   } catch (error) {
     console.error(error);
@@ -91,7 +104,70 @@ async function runEmbedSearch() {
   }
 }
 
-// HELPER: Fetch embeds & Index
+// ==========================================
+// STORAGE HELPERS (Load/Save)
+// ==========================================
+function saveIndexToDisk() {
+  try {
+    // Convert Map to Array of Entries for JSON serialization
+    const serializedData = JSON.stringify(
+      Array.from(globalEmbedIndex.entries())
+    );
+    localStorage.setItem(CACHE_KEY, serializedData);
+
+    isIndexBuilt = true;
+    updateCacheStatusUI();
+    console.log(`Saved ${globalEmbedIndex.size} embeds to Local Storage.`);
+  } catch (e) {
+    console.warn("Storage quota exceeded or error saving cache:", e);
+    document.getElementById("embedStatus").textContent =
+      "Warning: Database too large to save to disk. Will persist in memory only.";
+  }
+}
+
+function loadIndexFromDisk() {
+  const raw = localStorage.getItem(CACHE_KEY);
+  if (raw) {
+    try {
+      // Hydrate Map from JSON
+      const parsed = JSON.parse(raw);
+      globalEmbedIndex = new Map(parsed);
+      isIndexBuilt = true;
+      updateCacheStatusUI();
+      console.log(`Loaded ${globalEmbedIndex.size} embeds from cache.`);
+    } catch (e) {
+      console.error("Corrupt cache data", e);
+      localStorage.removeItem(CACHE_KEY);
+    }
+  } else {
+    updateCacheStatusUI();
+  }
+}
+
+function forceReIndex() {
+  localStorage.removeItem(CACHE_KEY);
+  globalEmbedIndex.clear();
+  isIndexBuilt = false;
+  updateCacheStatusUI();
+  document.getElementById("embedStatus").textContent =
+    "Cache cleared. Ready to re-scan.";
+  document.getElementById("embedResultContainer").style.display = "none";
+}
+
+function updateCacheStatusUI() {
+  const statusSpan = document.getElementById("cacheStatusText");
+  if (isIndexBuilt) {
+    statusSpan.textContent = `✅ Ready (${globalEmbedIndex.size} embeds indexed)`;
+    statusSpan.style.color = "#4ade80"; // Green
+  } else {
+    statusSpan.textContent = "Empty (Will fetch on first search)";
+    statusSpan.style.color = "#a3b8cc"; // Muted
+  }
+}
+
+// ==========================================
+// API HELPERS
+// ==========================================
 async function fetchAndIndexAccount(apiKey, account) {
   try {
     let nextUrl = `https://api.sightmap.com/v1/accounts/${account.id}/embeds?per-page=100`;
@@ -126,7 +202,6 @@ async function fetchAndIndexAccount(apiKey, account) {
   }
 }
 
-// HELPER: Fetch ALL Accounts
 async function fetchAllAccounts(apiKey, statusElem) {
   let allAccounts = [];
   let nextUrl = "https://api.sightmap.com/v1/accounts?per-page=100";
@@ -145,7 +220,6 @@ async function fetchAllAccounts(apiKey, statusElem) {
   return allAccounts;
 }
 
-// HELPER: Display
 function displayEmbedResult(matchObj) {
   const container = document.getElementById("embedResultContainer");
   const embed = matchObj.embed;

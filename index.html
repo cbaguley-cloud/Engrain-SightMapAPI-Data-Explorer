@@ -1264,6 +1264,19 @@
             <button id="findEmbedBtn" class="primary-btn">
               Find Account & Asset
             </button>
+            <button
+              id="resetCacheBtn"
+              class="secondary-btn"
+              title="Clear cache and re-fetch latest data"
+            >
+              Force Re-Index
+            </button>
+          </div>
+          <div
+            style="font-size: 0.8rem; margin-top: 5px; color: var(--text-muted)"
+          >
+            Cache Status:
+            <span id="cacheStatusText">Empty (Will fetch on first search)</span>
           </div>
           <div id="embedStatus" class="status-msg"></div>
 
