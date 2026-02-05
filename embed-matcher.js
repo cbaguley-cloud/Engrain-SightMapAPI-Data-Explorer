@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
 // ==========================================
 async function runEmbedSearch() {
   const apiKey = document.getElementById("apiKey").value.trim();
-  const targetUrl = document.getElementById("embedUrlInput").value.trim();
+  let targetUrl = document.getElementById("embedUrlInput").value.trim();
   const statusDiv = document.getElementById("embedStatus");
   const resultDiv = document.getElementById("embedResultContainer");
 
@@ -32,16 +32,20 @@ async function runEmbedSearch() {
     return;
   }
 
+  // Normalize Input URL (remove trailing slash for better matching)
+  targetUrl = normalizeUrl(targetUrl);
+
   // 2. FAST PATH: Check Cache (Memory or Disk)
   if (isIndexBuilt) {
     console.log("Checking Index...");
     const cachedMatch = globalEmbedIndex.get(targetUrl);
+
     if (cachedMatch) {
-      statusDiv.textContent = "✅ Match found in Cache (Instant)!";
+      statusDiv.textContent = "Match found in Cache!";
       displayEmbedResult(cachedMatch);
     } else {
       statusDiv.textContent =
-        "URL not found in cached index. Try 'Force Re-Index' if this is a new unit.";
+        "URL not found in cached index. Try 'Force Re-Index' if this is a newly added unit.";
       resultDiv.style.display = "none";
     }
     return;
@@ -61,7 +65,7 @@ async function runEmbedSearch() {
 
     statusDiv.textContent = `Building Index: Scanning ${accounts.length} accounts...`;
 
-    // Process in batches of 5
+    // Process in batches (Concurrency)
     const BATCH_SIZE = 5;
     let processedCount = 0;
 
@@ -74,10 +78,11 @@ async function runEmbedSearch() {
 
       processedCount += batch.length;
 
+      // Update UI
       const percent = Math.round((processedCount / accounts.length) * 100);
       statusDiv.textContent = `Indexing: ${percent}% complete (${processedCount}/${accounts.length} accounts)...`;
 
-      // Optional: Early display if found, but keep building for cache completeness
+      // Optional: Early display if found
       if (
         globalEmbedIndex.has(targetUrl) &&
         resultDiv.style.display === "none"
@@ -87,16 +92,21 @@ async function runEmbedSearch() {
       }
     }
 
-    // 4. Save to Disk when done
+    // --- FIX IS HERE ---
+    // Mark index as built regardless of storage success
+    isIndexBuilt = true;
+    // -------------------
+
+    // 4. Attempt Save to Disk
     saveIndexToDisk();
 
     // Final check
     const match = globalEmbedIndex.get(targetUrl);
     if (match) {
-      statusDiv.textContent = "Index Complete & Saved. Match Found!";
+      statusDiv.textContent = "Index Complete. Match Found!";
       displayEmbedResult(match);
     } else {
-      statusDiv.textContent = `Index Complete & Saved. Scanned ${globalEmbedIndex.size} embeds, but URL not found.`;
+      statusDiv.textContent = `Index Complete. Scanned ${globalEmbedIndex.size} embeds, but URL not found.`;
     }
   } catch (error) {
     console.error(error);
@@ -105,23 +115,33 @@ async function runEmbedSearch() {
 }
 
 // ==========================================
-// STORAGE HELPERS (Load/Save)
+// HELPERS
 // ==========================================
+
+function normalizeUrl(url) {
+  if (!url) return "";
+  return url.replace(/\/$/, ""); // Remove trailing slash if present
+}
+
 function saveIndexToDisk() {
   try {
-    // Convert Map to Array of Entries for JSON serialization
+    // Check size estimation before stringifying to avoid crash
+    if (globalEmbedIndex.size > 5000) {
+      throw new Error("Index too large for Local Storage");
+    }
     const serializedData = JSON.stringify(
       Array.from(globalEmbedIndex.entries())
     );
     localStorage.setItem(CACHE_KEY, serializedData);
-
-    isIndexBuilt = true;
-    updateCacheStatusUI();
     console.log(`Saved ${globalEmbedIndex.size} embeds to Local Storage.`);
+    updateCacheStatusUI();
   } catch (e) {
-    console.warn("Storage quota exceeded or error saving cache:", e);
-    document.getElementById("embedStatus").textContent =
-      "Warning: Database too large to save to disk. Will persist in memory only.";
+    console.warn("Storage warning:", e);
+    const statusSpan = document.getElementById("cacheStatusText");
+    if (statusSpan) {
+      statusSpan.textContent = `Memory Only (Index too large for disk: ${globalEmbedIndex.size} items)`;
+      statusSpan.style.color = "#f59e0b"; // Orange/Yellow
+    }
   }
 }
 
@@ -129,7 +149,6 @@ function loadIndexFromDisk() {
   const raw = localStorage.getItem(CACHE_KEY);
   if (raw) {
     try {
-      // Hydrate Map from JSON
       const parsed = JSON.parse(raw);
       globalEmbedIndex = new Map(parsed);
       isIndexBuilt = true;
@@ -156,8 +175,10 @@ function forceReIndex() {
 
 function updateCacheStatusUI() {
   const statusSpan = document.getElementById("cacheStatusText");
+  if (!statusSpan) return;
+
   if (isIndexBuilt) {
-    statusSpan.textContent = `✅ Ready (${globalEmbedIndex.size} embeds indexed)`;
+    statusSpan.textContent = `Ready (${globalEmbedIndex.size} embeds indexed)`;
     statusSpan.style.color = "#4ade80"; // Green
   } else {
     statusSpan.textContent = "Empty (Will fetch on first search)";
@@ -165,9 +186,6 @@ function updateCacheStatusUI() {
   }
 }
 
-// ==========================================
-// API HELPERS
-// ==========================================
 async function fetchAndIndexAccount(apiKey, account) {
   try {
     let nextUrl = `https://api.sightmap.com/v1/accounts/${account.id}/embeds?per-page=100`;
@@ -187,7 +205,9 @@ async function fetchAndIndexAccount(apiKey, account) {
 
       embeds.forEach((embed) => {
         if (embed.url) {
-          globalEmbedIndex.set(embed.url.trim(), {
+          // Normalize the URL key before setting
+          const key = normalizeUrl(embed.url.trim());
+          globalEmbedIndex.set(key, {
             account: account,
             embed: embed,
           });
