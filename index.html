@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -16,7 +16,7 @@
       rel="stylesheet"
     />
 
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=1.2" />
   </head>
   <body>
     <div
@@ -65,6 +65,9 @@
       </button>
       <button class="tab-btn" onclick="openTab('tab-embed-lookup')">
         Embed Lookup
+      </button>
+      <button class="tab-btn" onclick="openTab('tab-auditor')">
+        Account Auditor
       </button>
     </div>
 
@@ -903,12 +906,7 @@
                   >
                 </div>
               </label>
-              <a
-                href="#"
-                id="expTemplateLink"
-                style="font-size: 0.8rem; color: white; text-decoration: none"
-                >Download CSV Template</a
-              >
+              <a href="#" id="expTemplateLink" ...>Download CSV Template</a>
             </div>
             <div class="input-group" style="margin-top: 5px">
               <input type="file" id="expCsvFile" accept=".csv" />
@@ -1315,6 +1313,158 @@
       </div>
     </div>
 
+    <div id="tab-auditor" class="tab-content">
+      <div
+        class="card"
+        style="border-top-left-radius: 0; border-top-right-radius: 0"
+      >
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px">
+          <div>
+            <label class="section-label">1. Configuration</label>
+            <div class="input-group">
+              <input
+                type="text"
+                id="auditAccountId"
+                placeholder="Account ID (Required, e.g. 1005)"
+              />
+            </div>
+            <div style="margin-top: 10px">
+              <label
+                style="
+                  font-size: 0.85rem;
+                  color: #a3b8cc;
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  cursor: pointer;
+                "
+              >
+                <input type="checkbox" id="auditSkipRefs" />
+                Force Skip Reference Fetching (Faster)
+              </label>
+            </div>
+          </div>
+          <div
+            style="
+              border-left: 1px solid var(--border-color);
+              padding-left: 20px;
+            "
+          >
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+              "
+            >
+              <label class="section-label"
+                >2. Upload Asset List
+                <div class="tooltip">
+                  ⓘ<span class="tooltip-text"
+                    >Expected Headers: asset_id, ref_id, name, address, city,
+                    state</span
+                  >
+                </div>
+              </label>
+              <a
+                href="#"
+                id="auditTemplateLink"
+                style="font-size: 0.8rem; color: white; text-decoration: none"
+                >Download Template</a
+              >
+            </div>
+            <div class="input-group" style="margin-top: 5px">
+              <input type="file" id="auditCsvFile" accept=".csv" />
+              <button id="runAuditBtn">Run Audit</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Account Auditor</h3>
+            <ul>
+              <li>
+                <strong>Reconciles</strong> an external list of assets against
+                an Engrain Account.
+              </li>
+              <li>
+                <strong>Priority:</strong> Matches by Asset ID &rarr; Reference
+                ID &rarr; Fuzzy Address &rarr; Fuzzy Name.
+              </li>
+              <li>
+                <strong>Deep Scanning:</strong> Automatically fetches references
+                if 'ref_id' is present in your CSV.
+              </li>
+            </ul>
+          </span>
+        </div>
+
+        <div id="auditStatusMsg" class="status" style="margin-top: 15px">
+          Ready.
+        </div>
+        <div
+          id="auditProgressBar"
+          style="
+            height: 4px;
+            width: 0%;
+            background: var(--primary);
+            transition: width 0.3s;
+            margin-top: 10px;
+          "
+        ></div>
+
+        <div class="header-row" style="margin-top: 30px">
+          <h2>
+            Audit Results <span id="auditCount" class="count-badge">0</span>
+          </h2>
+          <div class="btn-group">
+            <button
+              id="showUnmatchedBtn"
+              class="secondary-btn"
+              style="
+                display: none;
+                background-color: var(--col-navy);
+                border: 1px solid var(--accent-light);
+              "
+            >
+              Show Unmatched Account Assets
+            </button>
+            <button id="copyAuditClipBtn" class="secondary-btn">
+              Copy Table
+            </button>
+            <button id="downloadAuditCsvBtn" class="secondary-btn">
+              Download CSV
+            </button>
+          </div>
+        </div>
+
+        <div class="table-scroll-area">
+          <table id="auditTable">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Match Method</th>
+                <th>Input Asset ID</th>
+                <th>Input Ref ID</th>
+                <th>Input Name</th>
+                <th>Input Address</th>
+                <th>Input City</th>
+                <th>Input State</th>
+                <th>Matched Asset ID</th>
+                <th>Matched Ref ID</th>
+                <th>Matched Name</th>
+                <th>Matched Address</th>
+                <th>Matched City</th>
+                <th>Matched State</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <div id="top5Modal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
@@ -1330,6 +1480,43 @@
                 <th>Name</th>
                 <th>Address</th>
                 <th>City, State</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="unmatchedModal" class="modal">
+      <div class="modal-content" style="max-width: 1000px">
+        <div class="modal-header">
+          <h3>Unmatched Account Assets (<span id="unmatchedCount">0</span>)</h3>
+          <span class="close-modal" id="closeUnmatchedModal">&times;</span>
+        </div>
+        <div style="margin-bottom: 15px">
+          <p style="font-size: 0.9rem; color: #ccc">
+            These assets exist in the Engrain Account but were not matched to
+            any row in your uploaded CSV.
+          </p>
+          <div class="btn-group" style="margin-top: 10px">
+            <button id="copyUnmatchedBtn" class="secondary-btn">
+              Copy List
+            </button>
+            <button id="downloadUnmatchedBtn" class="secondary-btn">
+              Download CSV
+            </button>
+          </div>
+        </div>
+        <div class="table-scroll-area" style="max-height: 500px">
+          <table id="unmatchedTable">
+            <thead>
+              <tr>
+                <th>Asset ID</th>
+                <th>Name</th>
+                <th>Address</th>
+                <th>City</th>
+                <th>State</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -1360,5 +1547,6 @@
     <script src="global-fuzzy.js" defer></script>
     <script src="reference-match.js" defer></script>
     <script src="embed-matcher.js" defer></script>
+    <script src="account-auditor.js" defer></script>
   </body>
 </html>
