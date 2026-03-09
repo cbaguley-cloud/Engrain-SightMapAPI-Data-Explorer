@@ -72,7 +72,7 @@ async function runEmbedSearch() {
     for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
       const batch = accounts.slice(i, i + BATCH_SIZE);
       const batchPromises = batch.map((acc) =>
-        fetchAndIndexAccount(apiKey, acc)
+        fetchAndIndexAccount(apiKey, acc),
       );
       await Promise.all(batchPromises);
 
@@ -130,7 +130,7 @@ function saveIndexToDisk() {
       throw new Error("Index too large for Local Storage");
     }
     const serializedData = JSON.stringify(
-      Array.from(globalEmbedIndex.entries())
+      Array.from(globalEmbedIndex.entries()),
     );
     localStorage.setItem(CACHE_KEY, serializedData);
     console.log(`Saved ${globalEmbedIndex.size} embeds to Local Storage.`);
@@ -140,7 +140,7 @@ function saveIndexToDisk() {
     const statusSpan = document.getElementById("cacheStatusText");
     if (statusSpan) {
       statusSpan.textContent = `Memory Only (Index too large for disk: ${globalEmbedIndex.size} items)`;
-      statusSpan.style.color = "#f59e0b"; // Orange/Yellow
+      statusSpan.style.color = "#f59e0b";
     }
   }
 }
@@ -179,10 +179,10 @@ function updateCacheStatusUI() {
 
   if (isIndexBuilt) {
     statusSpan.textContent = `Ready (${globalEmbedIndex.size} embeds indexed)`;
-    statusSpan.style.color = "#4ade80"; // Green
+    statusSpan.style.color = "#4ade80";
   } else {
     statusSpan.textContent = "Empty (Will fetch on first search)";
-    statusSpan.style.color = "#a3b8cc"; // Muted
+    statusSpan.style.color = "#a3b8cc";
   }
 }
 

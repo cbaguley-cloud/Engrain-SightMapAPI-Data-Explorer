@@ -551,15 +551,16 @@
         class="card"
         style="border-top-left-radius: 0; border-top-right-radius: 0"
       >
-        <div style="margin-bottom: 20px">
-          <div
-            style="
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-            "
-          >
-            <label class="section-label">Configuration</label>
+        <div
+          style="
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+          "
+        >
+          <div>
+            <label class="section-label">1. Scope Configuration</label>
             <div
               style="
                 display: flex;
@@ -569,6 +570,8 @@
                 padding: 4px 10px;
                 border-radius: 4px;
                 border: 1px solid var(--border-color);
+                margin-bottom: 10px;
+                width: fit-content;
               "
             >
               <input
@@ -586,42 +589,153 @@
                 >Global Search (Ignore Account ID)</label
               >
             </div>
+            <div class="input-group">
+              <input
+                type="text"
+                id="refMatchAccountId"
+                placeholder="Account ID (Required unless Global is checked)"
+              />
+            </div>
           </div>
-          <div class="input-group" style="margin-top: 10px">
-            <input
-              type="text"
-              id="refMatchAccountId"
-              placeholder="Account ID (Required unless Global is checked)"
-            />
+          <div
+            style="
+              border-left: 1px solid var(--border-color);
+              padding-left: 20px;
+            "
+          >
+            <label class="section-label"
+              >2. Filter by Key (Optional)
+              <div class="tooltip">
+                ⓘ<span class="tooltip-text"
+                  >Limits API payload to a specific vendor key (e.g.,
+                  yardi_voyager). Makes search much faster.</span
+                >
+              </div>
+            </label>
+            <div class="input-group" style="margin-top: 10px">
+              <select
+                id="refMatchKey"
+                style="
+                  width: 100%;
+                  padding: 8px;
+                  border-radius: 4px;
+                  border: 1px solid var(--border-color);
+                  background: #262626;
+                  color: white;
+                "
+              >
+                <option value="">-- All Keys (No Filter) --</option>
+
+                <optgroup label="Property Management Systems">
+                  <option value="entrata">Entrata</option>
+                  <option value="entrata-unit-ids">Entrata (Unit IDs)</option>
+                  <option value="mri">MRI</option>
+                  <option value="realpage-onesite">RealPage OneSite</option>
+                  <option value="resman">ResMan</option>
+                  <option value="yardi-rentcafe">Yardi RentCafe</option>
+                  <option value="yardi-rentcafe-property-code">
+                    Yardi RentCafe (Property Code)
+                  </option>
+                  <option value="yardi-voyager">Yardi Voyager</option>
+                  <option value="yardi-voyager-idvalue">
+                    Yardi Voyager (ID Value)
+                  </option>
+                </optgroup>
+
+                <optgroup label="PMS: Rentable Items">
+                  <option value="entrata-rentable-items">
+                    Entrata Rentable Items
+                  </option>
+                  <option value="realpage-onesite-rentable-items-v1">
+                    RealPage OneSite Rentable Items
+                  </option>
+                  <option value="yardi-rentable-items-v1">
+                    Yardi Voyager Rentable Items
+                  </option>
+                </optgroup>
+
+                <optgroup label="CRM">
+                  <option value="funnel">Funnel</option>
+                </optgroup>
+
+                <optgroup label="Custom Solutions">
+                  <option value="greystar-master-id">
+                    Greystar (Master ID)
+                  </option>
+                  <option value="greystar-yardi-code">
+                    Greystar (Yardi Code)
+                  </option>
+                  <option value="venterra-realty">Venterra Realty</option>
+                </optgroup>
+
+                <optgroup label="Partner Solutions">
+                  <option value="appwork">AppWork</option>
+                </optgroup>
+              </select>
+            </div>
           </div>
         </div>
+
         <hr />
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          "
-        >
-          <label class="section-label"
-            >Bulk Input
-            <div class="tooltip">
-              ⓘ<span class="tooltip-text"
-                >Upload CSV with headers: "Property Name" and/or "Reference
-                ID".</span
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px">
+          <div>
+            <label class="section-label"
+              >Option A: Single Search
+              <div class="tooltip">
+                ⓘ<span class="tooltip-text"
+                  >Run a single check without uploading a CSV.</span
+                >
+              </div>
+            </label>
+            <div style="display: grid; gap: 10px; margin-top: 5px">
+              <input
+                type="text"
+                id="refSingleName"
+                placeholder="Property Name (Optional for fuzzy fallback)"
+              />
+              <input
+                type="text"
+                id="refSingleId"
+                placeholder="Reference ID (e.g. 12345)"
+              />
+              <button id="runSingleRefMatchBtn">Run Single Match</button>
+            </div>
+          </div>
+          <div
+            style="
+              border-left: 1px solid var(--border-color);
+              padding-left: 20px;
+            "
+          >
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+              "
+            >
+              <label class="section-label"
+                >Option B: Bulk Upload
+                <div class="tooltip">
+                  ⓘ<span class="tooltip-text"
+                    >Upload CSV with headers: "Property Name" and/or "Reference
+                    ID".</span
+                  >
+                </div>
+              </label>
+              <a
+                href="#"
+                id="refMatchTemplateLink"
+                style="font-size: 0.8rem; color: white; text-decoration: none"
+                >Download CSV Template</a
               >
             </div>
-          </label>
-          <a
-            href="#"
-            id="refMatchTemplateLink"
-            style="font-size: 0.8rem; color: white; text-decoration: none"
-            >Download CSV Template</a
-          >
-        </div>
-        <div class="input-group" style="margin-top: 5px">
-          <input type="file" id="refMatchCsvFile" accept=".csv" />
-          <button id="runRefMatchBtn">Run Reference Match</button>
+            <div class="input-group" style="margin-top: 5px">
+              <input type="file" id="refMatchCsvFile" accept=".csv" />
+              <button id="runBulkRefMatchBtn">Run Bulk Match</button>
+            </div>
+          </div>
         </div>
 
         <div class="description mt-10">
@@ -629,29 +743,38 @@
             <h3>Reference Matcher</h3>
             <ul>
               <li>
-                Deep Scan Capability: Unlike standard searches, this tool
-                iterates through the asset list and individually fetches
-                third-party integrations (Yardi, RealPage, etc.) using the
-                <code>/multifamily/references</code> endpoint.
+                <strong>Deep Scan Capability:</strong> Iterates through the
+                asset list and individually fetches third-party integrations
+                (Yardi, RealPage, etc.) using the updated
+                <code>/assets/references</code> endpoint.
               </li>
               <li>
-                Hybrid Matching Logic: Prioritizes Exact Reference ID matches
-                (100% score) first. If no ID is provided or found, it falls back
-                to Fuzzy Name matching (Levenshtein + Token).
+                <strong>Key Filtering:</strong> Allows you to pass a specific
+                vendor key (e.g., <code>yardi_voyager</code>) to drastically
+                speed up the deep scan by filtering payloads directly at the API
+                level.
               </li>
               <li>
-                Flexible Scope: Supports both Account-Specific searches (scoped
-                to one ID) and Global searches (ignores Account ID).
+                <strong>Hybrid Matching Logic:</strong> Prioritizes Exact
+                Reference ID matches (100% score) first. If no ID is provided or
+                found, it falls back to Fuzzy Name matching (Levenshtein +
+                Token).
               </li>
               <li>
-                Bulk Reconciliation: Accepts CSV uploads containing "Reference
-                ID" and "Property Name" columns to batch-process external data
-                against the Atlas database.
+                <strong>Flexible Scope:</strong> Supports both Account-Specific
+                searches (scoped to one ID) and Global searches (ignores Account
+                ID).
               </li>
               <li>
-                Detailed Export: Results include the specific matched Reference
-                IDs (Key: Value pairs), match confidence scores, and location
-                data, downloadable as CSV.
+                <strong>Single & Bulk Lookups:</strong> Run quick one-off checks
+                using Option A, or upload a CSV containing "Reference ID" and
+                "Property Name" columns for bulk batch-processing using Option
+                B.
+              </li>
+              <li>
+                <strong>Detailed Export:</strong> Results include the specific
+                matched Reference IDs (Key: Value pairs), match confidence
+                scores, and location data, downloadable as CSV.
               </li>
             </ul>
           </span>
@@ -906,7 +1029,12 @@
                   >
                 </div>
               </label>
-              <a href="#" id="expTemplateLink" ...>Download CSV Template</a>
+              <a
+                href="#"
+                id="expTemplateLink"
+                style="font-size: 0.8rem; color: white; text-decoration: none"
+                >Download CSV Template</a
+              >
             </div>
             <div class="input-group" style="margin-top: 5px">
               <input type="file" id="expCsvFile" accept=".csv" />
@@ -1418,18 +1546,36 @@
           <h2>
             Audit Results <span id="auditCount" class="count-badge">0</span>
           </h2>
-          <div class="btn-group">
+          <div
+            class="btn-group"
+            style="gap: 10px; display: flex; flex-wrap: wrap"
+          >
             <button
               id="showUnmatchedBtn"
               class="secondary-btn"
               style="
                 display: none;
-                background-color: var(--col-navy);
-                border: 1px solid var(--accent-light);
+                background-color: #d97706;
+                border-color: #b45309;
+                color: white;
               "
             >
-              Show Unmatched Account Assets
+              Unmatched Account Assets
             </button>
+
+            <button
+              id="showUnmatchedInputBtn"
+              class="secondary-btn"
+              style="
+                display: none;
+                background-color: #b91c1c;
+                border: 1px solid #991b1b;
+                color: white;
+              "
+            >
+              Unmatched Inputs
+            </button>
+
             <button id="copyAuditClipBtn" class="secondary-btn">
               Copy Table
             </button>
@@ -1513,6 +1659,44 @@
             <thead>
               <tr>
                 <th>Asset ID</th>
+                <th>Name</th>
+                <th>Address</th>
+                <th>City</th>
+                <th>State</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="unmatchedInputModal" class="modal">
+      <div class="modal-content" style="max-width: 1000px">
+        <div class="modal-header">
+          <h3>Unmatched Inputs (<span id="unmatchedInputCount">0</span>)</h3>
+          <span class="close-modal" id="closeUnmatchedInputModal">&times;</span>
+        </div>
+        <div style="margin-bottom: 15px">
+          <p style="font-size: 0.9rem; color: #ccc">
+            These rows from your CSV could not be matched to any asset in the
+            Engrain Account.
+          </p>
+          <div class="btn-group" style="margin-top: 10px">
+            <button id="copyUnmatchedInputBtn" class="secondary-btn">
+              Copy List
+            </button>
+            <button id="downloadUnmatchedInputBtn" class="secondary-btn">
+              Download CSV
+            </button>
+          </div>
+        </div>
+        <div class="table-scroll-area" style="max-height: 500px">
+          <table id="unmatchedInputTable">
+            <thead>
+              <tr>
+                <th>Input ID</th>
+                <th>Ref ID</th>
                 <th>Name</th>
                 <th>Address</th>
                 <th>City</th>

@@ -22,7 +22,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Template
   document.getElementById("refTemplateLink").addEventListener("click", (e) => {
     e.preventDefault();
-    const csvContent = "asset_id\n4715\n12345";
+    const csvContent = "asset_id";
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -74,12 +74,12 @@ async function runBulkRefSearch() {
     }
     resetRefUI();
     updateRefStatus(
-      `Found ${assetIds.length} assets. Starting bulk process...`
+      `Found ${assetIds.length} assets. Starting bulk process...`,
     );
     let processed = 0;
     for (const id of assetIds) {
       updateRefStatus(
-        `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`
+        `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`,
       );
       await fetchAndProcessReferences(apiKey, id);
       processed++;
@@ -90,7 +90,7 @@ async function runBulkRefSearch() {
       await new Promise((r) => setTimeout(r, 0));
     }
     updateRefStatus(
-      `Bulk Process Complete. Found ${allReferences.length} total references.`
+      `Bulk Process Complete. Found ${allReferences.length} total references.`,
     );
   };
   reader.readAsText(file);
@@ -135,7 +135,7 @@ function parseRefCSV(csvText) {
   let idIndex = 0;
   const headers = lines[0].toLowerCase().split(",");
   const foundIndex = headers.findIndex(
-    (h) => h.trim().includes("asset_id") || h.trim().includes("assetid")
+    (h) => h.trim().includes("asset_id") || h.trim().includes("assetid"),
   );
   if (foundIndex !== -1) idIndex = foundIndex;
   const startRow = foundIndex !== -1 ? 1 : 0;

@@ -1,18 +1,17 @@
-/* reference-match.js
-   Features:
-   1. Fetches Asset List (Account or Global).
-   2. "Deep Scans" by fetching references for EACH asset individually using the /multifamily/references endpoint.
-   3. Matches Input Ref ID -> Asset Reference (Exact)
-   4. Fallback: Input Name -> Asset Name (Fuzzy)
-*/
+/* reference-match.js */
 
 let refMatchResults = [];
-let abortController = null; // To stop the process if needed
+let refAbortController = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-  const runBtn = document.getElementById("runRefMatchBtn");
-  if (runBtn) runBtn.addEventListener("click", runRefMatch);
+  // Option A & B Buttons (These match your new HTML)
+  const singleBtn = document.getElementById("runSingleRefMatchBtn");
+  if (singleBtn) singleBtn.addEventListener("click", runSingleRefMatch);
 
+  const bulkBtn = document.getElementById("runBulkRefMatchBtn");
+  if (bulkBtn) bulkBtn.addEventListener("click", runBulkRefMatch);
+
+  // Utils
   const dlBtn = document.getElementById("downloadRefMatchBtn");
   if (dlBtn) dlBtn.addEventListener("click", downloadRefMatchCSV);
 
@@ -25,15 +24,16 @@ document.addEventListener("DOMContentLoaded", () => {
   // Template Download
   const tmplLink = document.getElementById("refMatchTemplateLink");
   if (tmplLink) {
-    tmplLink.addEventListener("click", (e) => {
+    const newLink = tmplLink.cloneNode(true);
+    tmplLink.parentNode.replaceChild(newLink, tmplLink);
+    newLink.addEventListener("click", (e) => {
       e.preventDefault();
       const csvContent =
         "Property Name,Reference ID\nGreenwood Apartments,12345\nSunrise Villas,99-88-77";
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
-      link.setAttribute("download", "reference_match_template.csv");
+      link.href = URL.createObjectURL(blob);
+      link.download = "reference_match_template.csv";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -54,28 +54,57 @@ function toggleRefGlobalInput(e) {
   }
 }
 
-async function runRefMatch() {
+function getRefCoreParams() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const accountId = document.getElementById("refMatchAccountId").value.trim();
   const isGlobal = document.getElementById("globalRefSearchCheck").checked;
-  const fileInput = document.getElementById("refMatchCsvFile");
+  const filterKey = document.getElementById("refMatchKey").value.trim();
 
   if (!apiKey) {
     alert("Please enter API Key.");
-    return;
+    return null;
   }
   if (!isGlobal && !accountId) {
     alert("Please enter Account ID or check Global Search.");
+    return null;
+  }
+
+  return { apiKey, accountId, isGlobal, filterKey };
+}
+
+// ==========================================
+// OPTION A: SINGLE SEARCH
+// ==========================================
+async function runSingleRefMatch() {
+  const params = getRefCoreParams();
+  if (!params) return;
+
+  const name = document.getElementById("refSingleName").value.trim();
+  const refId = document.getElementById("refSingleId").value.trim();
+
+  if (!name && !refId) {
+    alert(
+      "Please provide either a Property Name or a Reference ID for a single search.",
+    );
     return;
   }
+
+  const inputRows = [{ propertyName: name, refId: refId }];
+  await executeRefMatchCore(params, inputRows);
+}
+
+// ==========================================
+// OPTION B: BULK SEARCH
+// ==========================================
+async function runBulkRefMatch() {
+  const params = getRefCoreParams();
+  if (!params) return;
+
+  const fileInput = document.getElementById("refMatchCsvFile");
   if (fileInput.files.length === 0) {
     alert("Please select a CSV.");
     return;
   }
-
-  // Allow stopping previous runs
-  if (abortController) abortController.abort();
-  abortController = new AbortController();
 
   const file = fileInput.files[0];
   const reader = new FileReader();
@@ -84,7 +113,6 @@ async function runRefMatch() {
     const csvText = e.target.result;
     const lines = csvText.split(/\r?\n/).filter(Boolean);
 
-    // Header Detection
     const header = lines[0].toLowerCase();
     let nameIdx = 0;
     let refIdx = 1;
@@ -100,14 +128,16 @@ async function runRefMatch() {
         if (p.includes("ref") || p.includes("id")) refIdx = i;
         if (p.includes("name") || p.includes("property")) nameIdx = i;
       });
-      lines.shift(); // Remove header
+      lines.shift();
     }
 
     const inputRows = lines.map((line) => {
-      const parts = line.split(",");
+      // Handles commas inside quotes correctly
+      const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+      const clean = (v) => (v ? v.trim().replace(/^"|"$/g, "").trim() : "");
       return {
-        propertyName: parts[nameIdx]?.trim() || "",
-        refId: parts[refIdx]?.trim() || "",
+        propertyName: clean(parts[nameIdx]),
+        refId: clean(parts[refIdx]),
       };
     });
 
@@ -116,59 +146,66 @@ async function runRefMatch() {
       return;
     }
 
-    resetRefMatchUI();
-
-    // 1. Fetch Basic Asset List
-    updateRefStatus("Step 1/2: Fetching Asset List...");
-    let url = isGlobal
-      ? `https://api.sightmap.com/v1/assets?per-page=250`
-      : `https://api.sightmap.com/v1/accounts/${accountId}/assets?per-page=250`;
-
-    try {
-      const assets = await fetchAssetList(apiKey, url, abortController.signal);
-
-      // 2. Deep Scan: Fetch References for EACH asset
-      // This is necessary because the list endpoint doesn't return them.
-      updateRefStatus(
-        `Step 2/2: Deep Scanning ${assets.length} assets for references...`
-      );
-
-      const enrichedAssets = await enrichAssetsWithReferences(
-        apiKey,
-        assets,
-        abortController.signal
-      );
-
-      updateRefProgressBar(100);
-      updateRefStatus(
-        `Matching ${inputRows.length} inputs against ${enrichedAssets.length} assets...`
-      );
-
-      // 3. Match
-      const matches = performRefMatching(inputRows, enrichedAssets);
-      renderRefResults(matches);
-      refMatchResults = matches;
-
-      updateRefStatus(
-        `Process Complete. Found ${
-          matches.filter((m) => m.matchedId).length
-        } matches.`
-      );
-    } catch (error) {
-      if (error.name === "AbortError") {
-        updateRefStatus("Cancelled.");
-      } else {
-        console.error(error);
-        updateRefStatus(`Error: ${error.message}`);
-      }
-    }
+    await executeRefMatchCore(params, inputRows);
   };
 
   reader.readAsText(file);
 }
 
+// ==========================================
+// CORE EXECUTION ENGINE
+// ==========================================
+async function executeRefMatchCore(params, inputRows) {
+  const { apiKey, accountId, isGlobal, filterKey } = params;
 
-// STEP 1: Fetch Basic Asset List (Name, ID)
+  if (refAbortController) refAbortController.abort();
+  refAbortController = new AbortController();
+
+  resetRefMatchUI();
+
+  updateRefStatus("Step 1/2: Fetching Asset List...");
+  let url = isGlobal
+    ? `https://api.sightmap.com/v1/assets?per-page=250`
+    : `https://api.sightmap.com/v1/accounts/${accountId}/assets?per-page=250`;
+
+  try {
+    const assets = await fetchAssetList(apiKey, url, refAbortController.signal);
+
+    const keyStatusMsg = filterKey ? ` (Filtered by Key: ${filterKey})` : "";
+    updateRefStatus(
+      `Step 2/2: Deep Scanning ${assets.length} assets for references${keyStatusMsg}...`,
+    );
+
+    const enrichedAssets = await enrichAssetsWithReferences(
+      apiKey,
+      assets,
+      filterKey,
+      refAbortController.signal,
+    );
+
+    updateRefProgressBar(100);
+    updateRefStatus(
+      `Matching ${inputRows.length} inputs against ${enrichedAssets.length} assets...`,
+    );
+
+    const matches = performRefMatching(inputRows, enrichedAssets);
+    renderRefResults(matches);
+    refMatchResults = matches;
+
+    updateRefStatus(
+      `Process Complete. Found ${matches.filter((m) => m.matchedId).length} matches.`,
+    );
+  } catch (error) {
+    if (error.name === "AbortError") {
+      updateRefStatus("Cancelled.");
+    } else {
+      console.error(error);
+      updateRefStatus(`Error: ${error.message}`);
+    }
+  }
+}
+
+// STEP 1: Fetch Basic Asset List
 async function fetchAssetList(apiKey, initialUrl, signal) {
   let allAssets = [];
   let nextUrl = initialUrl;
@@ -196,12 +233,11 @@ async function fetchAssetList(apiKey, initialUrl, signal) {
       totalCount = json.paging.total_count;
     nextUrl = json.paging ? json.paging.next_url : null;
 
-    // UI Feedback
     let percent =
-      totalCount > 0 ? Math.floor((allAssets.length / totalCount) * 50) : 25; // First 50% of bar
+      totalCount > 0 ? Math.floor((allAssets.length / totalCount) * 50) : 25;
     updateRefProgressBar(percent);
     updateRefStatus(
-      `Fetching Asset List... ${allAssets.length} / ${totalCount || "?"}`
+      `Fetching Asset List... ${allAssets.length} / ${totalCount || "?"}`,
     );
 
     await new Promise((r) => setTimeout(r, 0));
@@ -209,13 +245,10 @@ async function fetchAssetList(apiKey, initialUrl, signal) {
   return allAssets;
 }
 
-
-// STEP 2: Enrich Assets (Fetch References per Asset)
-async function enrichAssetsWithReferences(apiKey, assets, signal) {
+// STEP 2: Enrich Assets (NEW ENDPOINT USAGE)
+async function enrichAssetsWithReferences(apiKey, assets, filterKey, signal) {
   let completed = 0;
   const total = assets.length;
-
-  // We process in batches of 5 to respect rate limits/browser resources
   const BATCH_SIZE = 5;
 
   for (let i = 0; i < total; i += BATCH_SIZE) {
@@ -223,11 +256,15 @@ async function enrichAssetsWithReferences(apiKey, assets, signal) {
 
     const batch = assets.slice(i, i + BATCH_SIZE);
 
-    // Parallel requests for the batch
     await Promise.all(
       batch.map(async (asset) => {
         try {
-          const url = `https://api.sightmap.com/v1/assets/${asset.id}/multifamily/references?per-page=100`;
+          // FIXED: Using the new Unitmap API Endpoint
+          let url = `https://api.unitmap.com/v1/assets/references?asset=${asset.id}&per-page=1000`;
+
+          if (filterKey) {
+            url += `&key=${encodeURIComponent(filterKey)}`;
+          }
 
           const res = await fetch(url, {
             method: "GET",
@@ -240,7 +277,7 @@ async function enrichAssetsWithReferences(apiKey, assets, signal) {
 
           if (res.ok) {
             const json = await res.json();
-            asset.references = json.data || []; // Attach references to the asset object
+            asset.references = json.data || [];
           } else {
             asset.references = [];
           }
@@ -248,26 +285,22 @@ async function enrichAssetsWithReferences(apiKey, assets, signal) {
           console.warn(`Failed ref fetch for asset ${asset.id}`, err);
           asset.references = [];
         }
-      })
+      }),
     );
 
     completed += batch.length;
-
-    // Progress Bar (Scale from 50% to 100%)
     const percent = 50 + Math.floor((completed / total) * 50);
     updateRefProgressBar(percent);
     updateRefStatus(
-      `Deep Scanning: Fetched references for ${completed} / ${total} assets...`
+      `Deep Scanning: Fetched references for ${completed} / ${total} assets...`,
     );
 
-    // Small delay to prevent thread locking
     await new Promise((r) => setTimeout(r, 10));
   }
   return assets;
 }
 
-
-// STEP 3: Matching Logic
+// STEP 3: Matching Logic (Preserved from your original logic)
 function performRefMatching(rows, assets) {
   return rows.map((row) => {
     const inputRef = row.refId ? String(row.refId).trim().toLowerCase() : "";
@@ -280,11 +313,9 @@ function performRefMatching(rows, assets) {
       let matchMethod = "";
 
       // A. CHECK REFERENCES (Exact Match)
-      // Asset references will be populated if they exist
       let hasRefMatch = false;
       if (inputRef && asset.references && asset.references.length > 0) {
         hasRefMatch = asset.references.some((r) => {
-          // Handle both object {key, value} and potential raw strings
           const val =
             typeof r === "object" && r.value ? String(r.value) : String(r);
           return val.trim().toLowerCase() === inputRef;
@@ -296,7 +327,6 @@ function performRefMatching(rows, assets) {
         matchMethod = "Reference ID (Exact)";
       } else if (inputName) {
         // B. CHECK FUZZY NAME (Fallback)
-        // Only run fuzzy if we didn't find an ID match
         const aName = normalizeRefString(asset.name);
         const sim = similarityRef(inputName, aName);
         const tok = tokenMatchScoreRef(inputName, aName);
@@ -320,19 +350,16 @@ function performRefMatching(rows, assets) {
       inputName: row.propertyName || "-",
       matchedId: best.asset ? best.asset.id : "",
       matchedName: best.asset ? best.asset.name : "No Match",
-      matchedRefIds: getAssetRefString(best.asset), // New formatting
+      matchedRefIds: getAssetRefString(best.asset),
       location: getRefAssetLocation(best.asset),
       method: best.score > 0 ? best.method : "-",
     };
   });
 }
 
-
 // Helpers
-
 function getAssetRefString(asset) {
   if (!asset || !asset.references || asset.references.length === 0) return "";
-  // Format: "key: value | key: value"
   return asset.references
     .map((r) => {
       if (typeof r === "object") return `${r.key || "id"}: ${r.value}`;
@@ -356,11 +383,12 @@ function normalizeRefString(str) {
   return str
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[.,'’"]/g, "")
+    .replace(/[.,'’]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
+
 function levenshteinRef(a, b) {
   if (a === b) return 0;
   if (!a || !b) return Math.max(a.length, b.length);
@@ -377,16 +405,19 @@ function levenshteinRef(a, b) {
   }
   return v1[b.length];
 }
+
 function similarityRef(a, b) {
   if (!a || !b) return 0;
   return 1 - levenshteinRef(a, b) / Math.max(a.length, b.length);
 }
+
 function tokenMatchScoreRef(a, b) {
   const t1 = new Set(normalizeRefString(a).split(" "));
   const t2 = new Set(normalizeRefString(b).split(" "));
   const inter = [...t1].filter((t) => t2.has(t));
   return inter.length / Math.max(t1.size, 1);
 }
+
 function getRefScoreStyle(score) {
   const s = parseFloat(score);
   if (s >= 1.0) return "background-color:#22c55e;color:white;";
@@ -396,7 +427,6 @@ function getRefScoreStyle(score) {
 }
 
 function renderRefResults(matches) {
-  // Sort: 100% matches top, then high scores
   matches.sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
 
   const tbody = document.querySelector("#refMatchTable tbody");
@@ -410,7 +440,7 @@ function renderRefResults(matches) {
                 <td><span style="display:inline-block; padding:4px 8px; border-radius:4px; font-weight:bold; ${m.scoreStyle}">${m.score}</span></td>
                 <td style="font-family:monospace; color:#bbb;">${m.inputRef}</td>
                 <td style="color:#e0e0e0;">${m.inputName}</td>
-                <td style="font-family:monospace; color:var(--accent-light);">${m.matchedId}</td>
+                <td style="font-family:monospace; color:var(--accent-light); font-weight:bold;">${m.matchedId}</td>
                 <td>${m.matchedName}</td>
                 <td style="font-family:monospace; font-size:0.85em; color:#ddd; max-width:250px; overflow-wrap:anywhere;">${m.matchedRefIds}</td>
                 <td style="font-size:0.9em; color:#999;">${m.location}</td>
@@ -427,6 +457,7 @@ function resetRefMatchUI() {
   updateRefProgressBar(0);
   const countSpan = document.getElementById("refMatchCount");
   if (countSpan) countSpan.textContent = "0";
+  updateRefStatus("Starting search...");
 }
 
 function updateRefStatus(msg) {
@@ -458,9 +489,8 @@ function downloadRefMatchCSV() {
 
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
-  const url = URL.createObjectURL(blob);
-  link.setAttribute("href", url);
-  link.setAttribute("download", "reference_match_results.csv");
+  link.href = URL.createObjectURL(blob);
+  link.download = "reference_match_results.csv";
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

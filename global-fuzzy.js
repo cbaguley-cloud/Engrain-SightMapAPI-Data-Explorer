@@ -1,5 +1,6 @@
 /* global-fuzzy.js 
    Handles Global Fuzzy Matching (Name + Address against entire database).
+   UPDATED: Includes Smart Address Normalization and State Code Mapping.
 */
 
 let gfResults = [];
@@ -7,22 +8,19 @@ let top5Candidates = []; // Stores the top 5 for the modal
 
 document.addEventListener("DOMContentLoaded", () => {
   // Option A: Single
-  document
-    .getElementById("runGlobalFuzzyBtn")
-    .addEventListener("click", runGlobalFuzzyMatch);
+  const runBtn = document.getElementById("runGlobalFuzzyBtn");
+  if (runBtn) runBtn.addEventListener("click", runGlobalFuzzyMatch);
 
   // Option B: Bulk
-  document
-    .getElementById("bulkGlobalFuzzyBtn")
-    .addEventListener("click", runBulkGlobalFuzzyMatch);
+  const bulkBtn = document.getElementById("bulkGlobalFuzzyBtn");
+  if (bulkBtn) bulkBtn.addEventListener("click", runBulkGlobalFuzzyMatch);
 
   // Utils
-  document
-    .getElementById("downloadGfBtn")
-    .addEventListener("click", downloadGfCSV);
-  document
-    .getElementById("copyGfClipBtn")
-    .addEventListener("click", copyGfTable);
+  const dlBtn = document.getElementById("downloadGfBtn");
+  if (dlBtn) dlBtn.addEventListener("click", downloadGfCSV);
+
+  const copyBtn = document.getElementById("copyGfClipBtn");
+  if (copyBtn) copyBtn.addEventListener("click", copyGfTable);
 
   // Modal Logic
   const modal = document.getElementById("top5Modal");
@@ -47,18 +45,21 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Template
-  document.getElementById("gfTemplateLink").addEventListener("click", (e) => {
-    e.preventDefault();
-    const csvContent = "Property Name,Address,City,State";
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", "global_fuzzy_template.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  });
+  const tmplLink = document.getElementById("gfTemplateLink");
+  if (tmplLink) {
+    tmplLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      const csvContent = "Property Name,Address,City,State";
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", "global_fuzzy_template.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+  }
 });
 
 // OPTION A: Single Search (With Top 5 Feature)
@@ -203,12 +204,15 @@ async function runBulkGlobalFuzzyMatch() {
       lines.shift();
 
     const inputRows = lines.map((line) => {
-      const parts = line.split(",");
+      // Robust split for CSVs with quotes
+      const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+      const clean = (v) => (v ? v.trim().replace(/^"|"$/g, "").trim() : "");
+
       return {
-        name: parts[0]?.trim() || "",
-        address: parts[1]?.trim() || "",
-        city: parts[2]?.trim() || "",
-        state: parts[3]?.trim() || "",
+        name: clean(parts[0]),
+        address: clean(parts[1]),
+        city: clean(parts[2]),
+        state: clean(parts[3]),
       };
     });
 
@@ -309,8 +313,8 @@ async function fetchGlobalAssets(apiKey) {
     let pct = totalCount
       ? Math.floor((allAssets.length / totalCount) * 100)
       : nextUrl
-      ? 50
-      : 100;
+        ? 50
+        : 100;
     updateGfProgressBar(pct);
     updateGfStatus(
       `Fetching global DB... ${allAssets.length} / ${totalCount || "?"}`
@@ -320,54 +324,185 @@ async function fetchGlobalAssets(apiKey) {
   return allAssets;
 }
 
-function calculateGlobalScore(input, asset) {
-  const iName = normalizeGf(input.name);
-  const iAddr = normalizeGf(input.address);
-  const iCity = normalizeGf(input.city);
-  const iState = normalizeGf(input.state);
+// ==========================================
+// SCORING LOGIC (UPDATED WITH SMART NORMALIZATION)
+// ==========================================
 
-  const aName = normalizeGf(asset.name);
-  const aAddr = normalizeGf(asset.address ? asset.address.line1 : "");
-  const aCity = normalizeGf(
+function calculateGlobalScore(input, asset) {
+  // Use Smart Normalizers
+  const iName = normalizeGfString(input.name);
+  const iAddr = normalizeGfAddress(input.address);
+  const iCity = normalizeGfString(input.city);
+  const iState = normalizeGfState(input.state);
+
+  const aName = normalizeGfString(asset.name);
+  const aAddr = normalizeGfAddress(
+    asset.address_line1 || (asset.address ? asset.address.line1 : "")
+  );
+  const aCity = normalizeGfString(
     asset.address_city || (asset.address ? asset.address.city : "")
   );
-  const aState = normalizeGf(
+  const aState = normalizeGfState(
     asset.address_state || (asset.address ? asset.address.state : "")
   );
 
-  // Scoring Weights
-  // Name: 50%, Address: 30%, City: 15%, State: 5%
+  // 1. Name Score (50% Weight)
   const nameScore = combinedScoreGf(iName, aName);
 
+  // 2. Address Score (30% Weight)
   let addrScore = 0;
-  if (iAddr && aAddr) addrScore = similarityGf(iAddr, aAddr);
-  else if (!iAddr) addrScore = 1; // Ignore if input missing
+  if (iAddr && aAddr) {
+    // Perfect match or containment
+    if (iAddr === aAddr) addrScore = 1.0;
+    else if (iAddr.includes(aAddr) || aAddr.includes(iAddr)) addrScore = 0.95;
+    else {
+      const sim = similarityGf(iAddr, aAddr);
+      // Boost if street numbers match perfectly
+      const iNum = iAddr.match(/^\d+/);
+      const aNum = aAddr.match(/^\d+/);
+      if (iNum && aNum && iNum[0] === aNum[0]) {
+        addrScore = Math.max(sim, 0.7);
+      } else {
+        addrScore = sim;
+      }
+    }
+  } else if (!iAddr) {
+    addrScore = 1; // Ignore if input missing
+  }
 
+  // 3. City Score (15% Weight)
   let cityScore = 0;
-  if (iCity && aCity) cityScore = similarityGf(iCity, aCity);
-  else if (!iCity) cityScore = 1;
+  if (iCity && aCity) {
+    if (iCity === aCity) cityScore = 1.0;
+    else if (iCity.includes(aCity) || aCity.includes(iCity)) cityScore = 0.9;
+    else cityScore = similarityGf(iCity, aCity);
+  } else if (!iCity) {
+    cityScore = 1;
+  }
 
+  // 4. State Score (5% Weight)
+  // Smart Normalization makes this robust (CA == California)
   let stateScore = 0;
   if (iState && aState) stateScore = iState === aState ? 1 : 0;
   else if (!iState) stateScore = 1;
 
-  // Adjust weights based on what was provided
+  // Calculate Weighted Total
   let total =
     nameScore * 0.5 + addrScore * 0.3 + cityScore * 0.15 + stateScore * 0.05;
   return total;
 }
 
-// --- Helpers ---
-function normalizeGf(str) {
+// ==========================================
+// HELPER FUNCTIONS (Normalization & Utils)
+// ==========================================
+
+function normalizeGfString(str) {
   if (!str) return "";
   return str
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[.,'’"]/g, "")
+    .replace(/[.,'’"#-]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
+
+function normalizeGfAddress(str) {
+  if (!str) return "";
+  let s = str
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[.,'’"#-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Standardize Directions
+  s = s
+    .replace(/\bnorth\b/g, "n")
+    .replace(/\bsouth\b/g, "s")
+    .replace(/\beast\b/g, "e")
+    .replace(/\bwest\b/g, "w");
+  // Standardize Types
+  s = s
+    .replace(/\bstreet\b/g, "st")
+    .replace(/\bavenue\b/g, "ave")
+    .replace(/\broad\b/g, "rd")
+    .replace(/\bboulevard\b/g, "blvd")
+    .replace(/\bparkway\b/g, "pkwy")
+    .replace(/\blane\b/g, "ln")
+    .replace(/\bdrive\b/g, "drv")
+    .replace(/\bcourt\b/g, "ct")
+    .replace(/\bhighway\b/g, "hwy");
+  // Standardize Ordinals
+  s = s
+    .replace(/(\d+)th\b/g, "$1")
+    .replace(/(\d+)st\b/g, "$1")
+    .replace(/(\d+)nd\b/g, "$1")
+    .replace(/(\d+)rd\b/g, "$1");
+
+  return s;
+}
+
+const GF_STATE_MAP = {
+  alabama: "al",
+  alaska: "ak",
+  arizona: "az",
+  arkansas: "ar",
+  california: "ca",
+  colorado: "co",
+  connecticut: "ct",
+  delaware: "de",
+  florida: "fl",
+  georgia: "ga",
+  hawaii: "hi",
+  idaho: "id",
+  illinois: "il",
+  indiana: "in",
+  iowa: "ia",
+  kansas: "ks",
+  kentucky: "ky",
+  louisiana: "la",
+  maine: "me",
+  maryland: "md",
+  massachusetts: "ma",
+  michigan: "mi",
+  minnesota: "mn",
+  mississippi: "ms",
+  missouri: "mo",
+  montana: "mt",
+  nebraska: "ne",
+  nevada: "nv",
+  "new hampshire": "nh",
+  "new jersey": "nj",
+  "new mexico": "nm",
+  "new york": "ny",
+  "north carolina": "nc",
+  "north dakota": "nd",
+  ohio: "oh",
+  oklahoma: "ok",
+  oregon: "or",
+  pennsylvania: "pa",
+  "rhode island": "ri",
+  "south carolina": "sc",
+  "south dakota": "sd",
+  tennessee: "tn",
+  texas: "tx",
+  utah: "ut",
+  vermont: "vt",
+  virginia: "va",
+  washington: "wa",
+  "west virginia": "wv",
+  wisconsin: "wi",
+  wyoming: "wy",
+};
+
+function normalizeGfState(str) {
+  if (!str) return "";
+  const clean = str.toLowerCase().trim().replace(/\./g, "");
+  if (clean.length === 2) return clean; // Already a code
+  return GF_STATE_MAP[clean] || clean; // Convert or return original
+}
+
 function levenshteinGf(a, b) {
   if (a === b) return 0;
   if (!a || !b) return Math.max(a.length, b.length);
@@ -389,8 +524,8 @@ function similarityGf(a, b) {
   return 1 - levenshteinGf(a, b) / Math.max(a.length, b.length);
 }
 function tokenMatchScoreGf(a, b) {
-  const t1 = new Set(normalizeGf(a).split(" "));
-  const t2 = new Set(normalizeGf(b).split(" "));
+  const t1 = new Set(normalizeGfString(a).split(" "));
+  const t2 = new Set(normalizeGfString(b).split(" "));
   const inter = [...t1].filter((t) => t2.has(t));
   return inter.length / Math.max(t1.size, 1);
 }
