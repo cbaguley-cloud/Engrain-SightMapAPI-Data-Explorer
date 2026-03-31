@@ -1,7 +1,10 @@
+/* embed-matcher.js */
+
 // GLOBAL HASH INDEX
 let globalEmbedIndex = new Map();
 let isIndexBuilt = false;
 const CACHE_KEY = "engrain_embed_data_v1";
+let embedAbortController = null; // Added AbortController
 
 document.addEventListener("DOMContentLoaded", () => {
   const embedBtn = document.getElementById("findEmbedBtn");
@@ -9,6 +12,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (embedBtn) embedBtn.addEventListener("click", runEmbedSearch);
   if (resetBtn) resetBtn.addEventListener("click", forceReIndex);
+
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopEmbedBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (embedAbortController) embedAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (embedAbortController) {
+      embedAbortController.abort();
+      const localStopBtn = document.getElementById("stopEmbedBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      const statusDiv = document.getElementById("embedStatus");
+      if (statusDiv) statusDiv.textContent = "🛑 Process globally terminated.";
+    }
+  });
 
   // 1. Try to load cache immediately on page load
   loadIndexFromDisk();
@@ -52,11 +75,21 @@ async function runEmbedSearch() {
   }
 
   // 3. SLOW PATH: Build Index from API
+  if (embedAbortController) embedAbortController.abort();
+  embedAbortController = new AbortController();
+
   resultDiv.style.display = "none";
   statusDiv.textContent = "Initializing Index Build...";
 
+  const stopBtn = document.getElementById("stopEmbedBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
+
   try {
-    const accounts = await fetchAllAccounts(apiKey, statusDiv);
+    const accounts = await fetchAllAccounts(
+      apiKey,
+      statusDiv,
+      embedAbortController.signal,
+    );
 
     if (accounts.length === 0) {
       statusDiv.textContent = "No accounts found.";
@@ -66,13 +99,16 @@ async function runEmbedSearch() {
     statusDiv.textContent = `Building Index: Scanning ${accounts.length} accounts...`;
 
     // Process in batches (Concurrency)
-    const BATCH_SIZE = 5;
+    const BATCH_SIZE = 20;
     let processedCount = 0;
 
     for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
+      if (embedAbortController.signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
+
       const batch = accounts.slice(i, i + BATCH_SIZE);
       const batchPromises = batch.map((acc) =>
-        fetchAndIndexAccount(apiKey, acc),
+        fetchAndIndexAccount(apiKey, acc, embedAbortController.signal),
       );
       await Promise.all(batchPromises);
 
@@ -92,10 +128,8 @@ async function runEmbedSearch() {
       }
     }
 
-    // --- FIX IS HERE ---
     // Mark index as built regardless of storage success
     isIndexBuilt = true;
-    // -------------------
 
     // 4. Attempt Save to Disk
     saveIndexToDisk();
@@ -109,8 +143,14 @@ async function runEmbedSearch() {
       statusDiv.textContent = `Index Complete. Scanned ${globalEmbedIndex.size} embeds, but URL not found.`;
     }
   } catch (error) {
-    console.error(error);
-    statusDiv.textContent = `Error: ${error.message}`;
+    if (error.name === "AbortError") {
+      statusDiv.textContent = "🛑 Process Stopped.";
+    } else {
+      console.error(error);
+      statusDiv.textContent = `Error: ${error.message}`;
+    }
+  } finally {
+    if (stopBtn) stopBtn.style.display = "none";
   }
 }
 
@@ -186,16 +226,21 @@ function updateCacheStatusUI() {
   }
 }
 
-async function fetchAndIndexAccount(apiKey, account) {
+// Added Signal Parameter
+async function fetchAndIndexAccount(apiKey, account, signal) {
   try {
     let nextUrl = `https://api.sightmap.com/v1/accounts/${account.id}/embeds?per-page=100`;
 
     while (nextUrl) {
+      if (signal && signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
+
       const res = await fetch(nextUrl, {
         headers: {
           "API-Key": apiKey,
           "Experimental-Flags": "embed-resource",
         },
+        signal: signal,
       });
 
       if (!res.ok) return;
@@ -218,16 +263,28 @@ async function fetchAndIndexAccount(apiKey, account) {
         json.paging && json.paging.next_url ? json.paging.next_url : null;
     }
   } catch (err) {
-    console.warn(`Error indexing account ${account.id}`, err);
+    if (err.name !== "AbortError") {
+      console.warn(`Error indexing account ${account.id}`, err);
+    } else {
+      throw err;
+    }
   }
 }
 
-async function fetchAllAccounts(apiKey, statusElem) {
+// Added Signal Parameter
+async function fetchAllAccounts(apiKey, statusElem, signal) {
   let allAccounts = [];
   let nextUrl = "https://api.sightmap.com/v1/accounts?per-page=100";
 
   while (nextUrl) {
-    const res = await fetch(nextUrl, { headers: { "API-Key": apiKey } });
+    if (signal && signal.aborted)
+      throw new DOMException("Aborted", "AbortError");
+
+    const res = await fetch(nextUrl, {
+      headers: { "API-Key": apiKey },
+      signal: signal,
+    });
+
     if (!res.ok) throw new Error(`Failed to fetch accounts: ${res.status}`);
 
     const json = await res.json();

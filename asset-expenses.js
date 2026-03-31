@@ -1,7 +1,10 @@
+/* asset-expenses.js */
+
 let allExpenses = [];
 let uniqueTypes = new Set();
 let uniqueCats = new Set();
 let uniqueFreqs = new Set();
+let expAbortController = null; // Added AbortController
 
 document.addEventListener("DOMContentLoaded", () => {
   // Buttons
@@ -18,9 +21,28 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("downloadExpCsvBtn")
     .addEventListener("click", downloadExpCSV);
 
-  // NEW: Copy to Clipboard Button
+  // Copy to Clipboard Button
   const copyClipBtn = document.getElementById("copyExpClipBtn");
   if (copyClipBtn) copyClipBtn.addEventListener("click", copyExpTable);
+
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopExpBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (expAbortController) expAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (expAbortController) {
+      expAbortController.abort();
+      const localStopBtn = document.getElementById("stopExpBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateExpStatus("🛑 Process globally terminated.");
+    }
+  });
 
   // Filters
   document
@@ -55,15 +77,37 @@ async function runSingleExpenseSearch() {
     alert("Please enter API Key and Asset ID");
     return;
   }
+
+  if (expAbortController) expAbortController.abort();
+  expAbortController = new AbortController();
+
   resetExpUI();
   updateExpStatus(`Fetching expenses for Asset ${assetId}...`);
-  await fetchAndProcessExpenses(apiKey, assetId);
-  if (allExpenses.length > 0) {
-    populateExpFilters(allExpenses);
-    renderExpenseTable();
-    updateExpStatus(`Done. Found ${allExpenses.length} expenses.`);
-  } else {
-    updateExpStatus(`No expenses found for Asset ${assetId}.`);
+
+  const stopBtn = document.getElementById("stopExpBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
+
+  try {
+    document.getElementById("expProgressBar").style.width = `50%`;
+    await fetchAndProcessExpenses(apiKey, assetId, expAbortController.signal);
+    document.getElementById("expProgressBar").style.width = `100%`;
+
+    if (allExpenses.length > 0) {
+      populateExpFilters(allExpenses);
+      renderExpenseTable();
+      updateExpStatus(`Done. Found ${allExpenses.length} expenses.`);
+    } else {
+      updateExpStatus(`No expenses found for Asset ${assetId}.`);
+    }
+  } catch (error) {
+    if (error.name === "AbortError") {
+      updateExpStatus("🛑 Process Stopped.");
+    } else {
+      console.error(error);
+      updateExpStatus(`Error: ${error.message}`);
+    }
+  } finally {
+    if (stopBtn) stopBtn.style.display = "none";
   }
 }
 
@@ -78,8 +122,10 @@ async function runBulkExpenseSearch() {
     alert("Please select a CSV file");
     return;
   }
+
   const file = fileInput.files[0];
   const reader = new FileReader();
+
   reader.onload = async function (e) {
     const text = e.target.result;
     const assetIds = parseExpCSV(text);
@@ -87,36 +133,61 @@ async function runBulkExpenseSearch() {
       alert("No Asset IDs found. Check CSV format.");
       return;
     }
+
+    if (expAbortController) expAbortController.abort();
+    expAbortController = new AbortController();
+
     resetExpUI();
     updateExpStatus(
-      `Found ${assetIds.length} assets. Starting bulk process...`
+      `Found ${assetIds.length} assets. Starting bulk process...`,
     );
-    let processed = 0;
-    for (const id of assetIds) {
-      updateExpStatus(
-        `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`
-      );
-      await fetchAndProcessExpenses(apiKey, id);
-      processed++;
-      document.getElementById("expProgressBar").style.width = `${
-        (processed / assetIds.length) * 100
-      }%`;
-      await new Promise((r) => setTimeout(r, 0));
-    }
-    if (allExpenses.length > 0) {
-      populateExpFilters(allExpenses);
-      renderExpenseTable();
-      updateExpStatus(
-        `Bulk Process Complete. Found ${allExpenses.length} total expenses.`
-      );
-    } else {
-      updateExpStatus(`Process complete, but no expenses returned.`);
+
+    const stopBtn = document.getElementById("stopExpBtn");
+    if (stopBtn) stopBtn.style.display = "inline-block";
+
+    try {
+      let processed = 0;
+      for (const id of assetIds) {
+        if (expAbortController.signal.aborted)
+          throw new DOMException("Aborted", "AbortError");
+
+        updateExpStatus(
+          `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`,
+        );
+
+        await fetchAndProcessExpenses(apiKey, id, expAbortController.signal);
+
+        processed++;
+        document.getElementById("expProgressBar").style.width =
+          `${(processed / assetIds.length) * 100}%`;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      if (allExpenses.length > 0) {
+        populateExpFilters(allExpenses);
+        renderExpenseTable();
+        updateExpStatus(
+          `Bulk Process Complete. Found ${allExpenses.length} total expenses.`,
+        );
+      } else {
+        updateExpStatus(`Process complete, but no expenses returned.`);
+      }
+    } catch (error) {
+      if (error.name === "AbortError") {
+        updateExpStatus("🛑 Bulk Process Stopped.");
+      } else {
+        console.error(error);
+        updateExpStatus(`Error: ${error.message}`);
+      }
+    } finally {
+      if (stopBtn) stopBtn.style.display = "none";
     }
   };
   reader.readAsText(file);
 }
 
-async function fetchAndProcessExpenses(apiKey, assetId) {
+// Added `signal` parameter and threaded it to both API calls
+async function fetchAndProcessExpenses(apiKey, assetId, signal) {
   let assetName = "Unknown Asset";
   try {
     const nameRes = await fetch(
@@ -124,7 +195,8 @@ async function fetchAndProcessExpenses(apiKey, assetId) {
       {
         method: "GET",
         headers: { "API-Key": apiKey },
-      }
+        signal: signal,
+      },
     );
     if (nameRes.ok) {
       const nameJson = await nameRes.json();
@@ -135,23 +207,31 @@ async function fetchAndProcessExpenses(apiKey, assetId) {
       }
     }
   } catch (e) {
+    if (e.name === "AbortError") throw e; // Bubble up aborts immediately
     console.warn("Error fetching name for " + assetId, e);
   }
 
   let nextUrl = `https://api.sightmap.com/v1/assets/${assetId}/multifamily/expenses?per-page=100`;
   try {
     while (nextUrl) {
+      if (signal && signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
+
       const response = await fetch(nextUrl, {
         method: "GET",
         headers: { "API-Key": apiKey, "Experimental-Flags": "expenses" },
+        signal: signal,
       });
+
       if (!response.ok) {
         if (response.status !== 404)
           console.warn(`Asset ${assetId} error: ${response.status}`);
         return;
       }
+
       const jsonData = await response.json();
       const data = jsonData.data || [];
+
       data.forEach((item) => {
         let finalAmount = "N/A";
         if (item.value_type === "amount") {
@@ -171,10 +251,15 @@ async function fetchAndProcessExpenses(apiKey, assetId) {
         };
         allExpenses.push(matchObj);
       });
+
       nextUrl = jsonData.paging ? jsonData.paging.next_url : null;
     }
   } catch (error) {
-    console.error(`Error processing asset ${assetId}:`, error);
+    if (error.name !== "AbortError") {
+      console.error(`Error processing asset ${assetId}:`, error);
+    } else {
+      throw error;
+    }
   }
 }
 
@@ -234,7 +319,7 @@ function parseExpCSV(csvText) {
   let idIndex = 0;
   const headers = lines[0].toLowerCase().split(",");
   const foundIndex = headers.findIndex(
-    (h) => h.trim().includes("asset_id") || h.trim().includes("assetid")
+    (h) => h.trim().includes("asset_id") || h.trim().includes("assetid"),
   );
   if (foundIndex !== -1) idIndex = foundIndex;
   const startRow = foundIndex !== -1 ? 1 : 0;

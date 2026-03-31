@@ -1,10 +1,6 @@
-/* global-fuzzy.js 
-   Handles Global Fuzzy Matching (Name + Address against entire database).
-   UPDATED: Includes Smart Address Normalization and State Code Mapping.
-*/
-
 let gfResults = [];
 let top5Candidates = []; // Stores the top 5 for the modal
+let gfAbortController = null; // Added AbortController
 
 document.addEventListener("DOMContentLoaded", () => {
   // Option A: Single
@@ -21,6 +17,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const copyBtn = document.getElementById("copyGfClipBtn");
   if (copyBtn) copyBtn.addEventListener("click", copyGfTable);
+
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopGfBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (gfAbortController) gfAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (gfAbortController) {
+      gfAbortController.abort();
+      const localStopBtn = document.getElementById("stopGfBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateGfStatus("🛑 Process globally terminated.");
+    }
+  });
 
   // Modal Logic
   const modal = document.getElementById("top5Modal");
@@ -80,6 +95,9 @@ async function runGlobalFuzzyMatch() {
     return;
   }
 
+  if (gfAbortController) gfAbortController.abort();
+  gfAbortController = new AbortController();
+
   // Hide Top 5 button while searching
   if (btn) btn.style.display = "none";
   top5Candidates = [];
@@ -87,8 +105,11 @@ async function runGlobalFuzzyMatch() {
   resetGfUI();
   updateGfStatus("Fetching Global Asset List (this may take a moment)...");
 
+  const stopBtn = document.getElementById("stopGfBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
+
   try {
-    const allAssets = await fetchGlobalAssets(apiKey);
+    const allAssets = await fetchGlobalAssets(apiKey, gfAbortController.signal);
 
     updateGfProgressBar(100);
     updateGfStatus(`Scanning ${allAssets.length} assets...`);
@@ -144,8 +165,14 @@ async function runGlobalFuzzyMatch() {
       updateGfStatus("No matches found.");
     }
   } catch (error) {
-    console.error(error);
-    updateGfStatus(`Error: ${error.message}`);
+    if (error.name === "AbortError") {
+      updateGfStatus("🛑 Process Stopped.");
+    } else {
+      console.error(error);
+      updateGfStatus(`Error: ${error.message}`);
+    }
+  } finally {
+    if (stopBtn) stopBtn.style.display = "none";
   }
 }
 
@@ -221,6 +248,9 @@ async function runBulkGlobalFuzzyMatch() {
       return;
     }
 
+    if (gfAbortController) gfAbortController.abort();
+    gfAbortController = new AbortController();
+
     resetGfUI();
     // Hide single search button in bulk mode
     const btn = document.getElementById("showTop5Btn");
@@ -228,79 +258,130 @@ async function runBulkGlobalFuzzyMatch() {
 
     updateGfStatus("Fetching Global Asset List...");
 
+    const stopBtn = document.getElementById("stopGfBtn");
+    if (stopBtn) stopBtn.style.display = "inline-block";
+
     try {
-      const allAssets = await fetchGlobalAssets(apiKey);
-      updateGfProgressBar(100);
+      const allAssets = await fetchGlobalAssets(
+        apiKey,
+        gfAbortController.signal,
+      );
+      updateGfProgressBar(0); // Reset progress bar for the matching phase
       await new Promise((r) => setTimeout(r, 100));
 
       updateGfStatus(`Processing ${inputRows.length} rows...`);
 
-      const matches = inputRows.map((row) => {
-        let best = { score: 0, asset: null };
+      let matches = [];
+      const BATCH_SIZE = 50; // Process in chunks to prevent browser freeze
 
-        // Optimization: Logic identical to single, but loop kept for bulk speed
-        for (let asset of allAssets) {
-          const score = calculateGlobalScore(row, asset);
-          if (score > best.score) best = { score, asset };
+      for (let i = 0; i < inputRows.length; i += BATCH_SIZE) {
+        if (gfAbortController.signal.aborted)
+          throw new DOMException("Aborted", "AbortError");
+
+        const batch = inputRows.slice(i, i + BATCH_SIZE);
+
+        for (const row of batch) {
+          let best = { score: 0, asset: null };
+          let candidates = allAssets;
+
+          // OPTIMIZATION: Filter global assets by State first to drastically reduce comparisons
+          if (row.state) {
+            const rowStateNorm = normalizeGfState(row.state);
+            const stateFiltered = allAssets.filter((a) => {
+              const aState =
+                a.address_state || (a.address ? a.address.state : "");
+              return normalizeGfState(aState) === rowStateNorm;
+            });
+            if (stateFiltered.length > 0) candidates = stateFiltered;
+          }
+
+          // Run fuzzy match only on the narrowed-down candidates
+          for (let asset of candidates) {
+            const score = calculateGlobalScore(row, asset);
+            if (score > best.score) best = { score, asset };
+          }
+
+          let mId = "",
+            mName = "",
+            mAddr = "",
+            mCity = "",
+            mState = "";
+          if (best.asset) {
+            mId = best.asset.id;
+            mName = best.asset.name;
+            mAddr =
+              best.asset.address_line1 ||
+              (best.asset.address ? best.asset.address.line1 : "");
+            mCity =
+              best.asset.address_city ||
+              (best.asset.address ? best.asset.address.city : "");
+            mState =
+              best.asset.address_state ||
+              (best.asset.address ? best.asset.address.state : "");
+          }
+
+          matches.push({
+            inputName: row.name,
+            inputAddress: row.address,
+            inputCity: row.city,
+            inputState: row.state,
+            score: best.score.toFixed(3),
+            scoreStyle: getGfScoreStyle(best.score),
+            matchedId: mId,
+            matchedName: mName,
+            matchedAddress: mAddr,
+            matchedCity: mCity,
+            matchedState: mState,
+          });
         }
 
-        let mId = "",
-          mName = "",
-          mAddr = "",
-          mCity = "",
-          mState = "";
-        if (best.asset) {
-          mId = best.asset.id;
-          mName = best.asset.name;
-          mAddr =
-            best.asset.address_line1 ||
-            (best.asset.address ? best.asset.address.line1 : "");
-          mCity =
-            best.asset.address_city ||
-            (best.asset.address ? best.asset.address.city : "");
-          mState =
-            best.asset.address_state ||
-            (best.asset.address ? best.asset.address.state : "");
-        }
+        // Update UI Progress for the matching phase
+        const percentDone = Math.floor(
+          ((i + batch.length) / inputRows.length) * 100,
+        );
+        updateGfProgressBar(percentDone);
+        updateGfStatus(
+          `Matched ${Math.min(i + batch.length, inputRows.length)} of ${inputRows.length} rows...`,
+        );
 
-        return {
-          inputName: row.name,
-          inputAddress: row.address,
-          inputCity: row.city,
-          inputState: row.state,
-          score: best.score.toFixed(3),
-          scoreStyle: getGfScoreStyle(best.score),
-          matchedId: mId,
-          matchedName: mName,
-          matchedAddress: mAddr,
-          matchedCity: mCity,
-          matchedState: mState,
-        };
-      });
+        // Yield to the main thread so the browser can paint the progress bar
+        await new Promise((r) => setTimeout(r, 0));
+      }
 
       // Sort by best matches first
       matches.sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
 
       gfResults = matches;
       renderGfResults(matches);
+      updateGfProgressBar(100);
       updateGfStatus(`Bulk Complete. Processed ${matches.length} rows.`);
     } catch (error) {
-      console.error(error);
-      updateGfStatus(`Error: ${error.message}`);
+      if (error.name === "AbortError") {
+        updateGfStatus("🛑 Bulk Process Stopped.");
+      } else {
+        console.error(error);
+        updateGfStatus(`Error: ${error.message}`);
+      }
+    } finally {
+      if (stopBtn) stopBtn.style.display = "none";
     }
   };
   reader.readAsText(file);
 }
 
-async function fetchGlobalAssets(apiKey) {
+async function fetchGlobalAssets(apiKey, signal) {
   let allAssets = [];
   let nextUrl = `https://api.sightmap.com/v1/assets?per-page=500`;
   let totalCount = 0;
 
   while (nextUrl) {
+    if (signal && signal.aborted)
+      throw new DOMException("Aborted", "AbortError");
+
     const response = await fetch(nextUrl, {
       method: "GET",
       headers: { "API-Key": apiKey },
+      signal: signal,
     });
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
     const json = await response.json();
@@ -317,7 +398,7 @@ async function fetchGlobalAssets(apiKey) {
         : 100;
     updateGfProgressBar(pct);
     updateGfStatus(
-      `Fetching global DB... ${allAssets.length} / ${totalCount || "?"}`
+      `Fetching global DB... ${allAssets.length} / ${totalCount || "?"}`,
     );
     await new Promise((r) => setTimeout(r, 0));
   }
@@ -337,13 +418,13 @@ function calculateGlobalScore(input, asset) {
 
   const aName = normalizeGfString(asset.name);
   const aAddr = normalizeGfAddress(
-    asset.address_line1 || (asset.address ? asset.address.line1 : "")
+    asset.address_line1 || (asset.address ? asset.address.line1 : ""),
   );
   const aCity = normalizeGfString(
-    asset.address_city || (asset.address ? asset.address.city : "")
+    asset.address_city || (asset.address ? asset.address.city : ""),
   );
   const aState = normalizeGfState(
-    asset.address_state || (asset.address ? asset.address.state : "")
+    asset.address_state || (asset.address ? asset.address.state : ""),
   );
 
   // 1. Name Score (50% Weight)

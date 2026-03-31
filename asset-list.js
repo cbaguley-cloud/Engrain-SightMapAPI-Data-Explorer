@@ -1,4 +1,7 @@
+/* asset-list.js */
+
 let allFetchedAssets = [];
+let listAbortController = null; // Added AbortController
 
 document.addEventListener("DOMContentLoaded", () => {
   // Buttons
@@ -15,6 +18,25 @@ document.addEventListener("DOMContentLoaded", () => {
   // Copy to Clipboard Button
   const copyClipBtn = document.getElementById("copyListClipBtn");
   if (copyClipBtn) copyClipBtn.addEventListener("click", copyListTable);
+
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopListBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (listAbortController) listAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (listAbortController) {
+      listAbortController.abort();
+      const localStopBtn = document.getElementById("stopListBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateListStatus("🛑 Process globally terminated.");
+    }
+  });
 });
 
 async function runListAssets() {
@@ -37,11 +59,25 @@ async function runListAssets() {
     return;
   }
 
+  if (listAbortController) listAbortController.abort();
+  listAbortController = new AbortController();
+
   resetListUI();
   updateListStatus("Fetching all assets (handling pagination)...");
 
+  const stopBtn = document.getElementById("stopListBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
+
   try {
-    const rawAssets = await fetchAllAssetsList(apiKey);
+    const rawAssets = await fetchAllAssetsList(
+      apiKey,
+      listAbortController.signal,
+    );
+
+    // Check abort again just in case it fired right at the end
+    if (listAbortController.signal.aborted)
+      throw new DOMException("Aborted", "AbortError");
+
     const filteredAssets = rawAssets.filter((asset) => {
       const assetCity = (asset.address_city || "").toLowerCase();
       const assetState = (asset.address_state || "").toLowerCase();
@@ -60,30 +96,42 @@ async function runListAssets() {
 
     if (filteredAssets.length > 0) {
       updateListStatus(
-        `Done. Showing ${filteredAssets.length} assets (out of ${rawAssets.length} total).`
+        `Done. Showing ${filteredAssets.length} assets (out of ${rawAssets.length} total).`,
       );
     } else {
       updateListStatus(
-        `Fetched ${rawAssets.length} assets, but none matched your filters.`
+        `Fetched ${rawAssets.length} assets, but none matched your filters.`,
       );
     }
   } catch (error) {
-    console.error(error);
-    updateListStatus(`Error: ${error.message}`);
+    if (error.name === "AbortError") {
+      updateListStatus("🛑 Process Stopped.");
+    } else {
+      console.error(error);
+      updateListStatus(`Error: ${error.message}`);
+    }
+  } finally {
+    if (stopBtn) stopBtn.style.display = "none";
   }
 }
 
-async function fetchAllAssetsList(apiKey) {
+async function fetchAllAssetsList(apiKey, signal) {
   let assets = [];
   let nextUrl = `https://api.sightmap.com/v1/assets?per-page=500`;
   let page = 0;
 
   while (nextUrl) {
+    if (signal && signal.aborted)
+      throw new DOMException("Aborted", "AbortError");
+
     const response = await fetch(nextUrl, {
       method: "GET",
       headers: { "API-Key": apiKey },
+      signal: signal,
     });
+
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
+
     const json = await response.json();
     const data = json.data || [];
 
@@ -112,7 +160,7 @@ function renderListTable(assets) {
       tagsHtml = asset.tags
         .map(
           (t) =>
-            `<span class="match-tag" style="font-size:0.7em; background:var(--col-slate); border:1px solid var(--col-purple);">${t}</span>`
+            `<span class="match-tag" style="font-size:0.7em; background:var(--col-slate); border:1px solid var(--col-purple);">${t}</span>`,
         )
         .join(" ");
     }

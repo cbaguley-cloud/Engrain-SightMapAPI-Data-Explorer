@@ -1,4 +1,7 @@
+/* asset-search-account.js (Asset Matcher Fuzzy) */
+
 let assetResults = [];
+let assetAbortController = null; // Added AbortController
 
 document.addEventListener("DOMContentLoaded", () => {
   // Buttons
@@ -15,6 +18,25 @@ document.addEventListener("DOMContentLoaded", () => {
   // Copy to Clipboard Button
   const copyClipBtn = document.getElementById("copyFuzzyClipBtn");
   if (copyClipBtn) copyClipBtn.addEventListener("click", copyFuzzyTable);
+
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopAssetBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (assetAbortController) assetAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (assetAbortController) {
+      assetAbortController.abort();
+      const localStopBtn = document.getElementById("stopAssetBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateAssetStatus("🛑 Process globally terminated.");
+    }
+  });
 
   // Template
   document
@@ -54,13 +76,23 @@ async function runSingleAssetSearch() {
     return;
   }
 
+  if (assetAbortController) assetAbortController.abort();
+  assetAbortController = new AbortController();
+
   resetAssetUI();
   updateAssetStatus("Connecting to API...");
 
-  try {
-    const allAssets = await fetchAllAssets(apiKey, accountId);
+  const stopBtn = document.getElementById("stopAssetBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
 
-    // Ensure bar is 100% when done
+  try {
+    const allAssets = await fetchAllAssets(
+      apiKey,
+      accountId,
+      assetAbortController.signal,
+    );
+
+    // Ensure bar is 100% when fetch is done
     updateProgressBar(100);
     updateAssetStatus(`Scanning ${allAssets.length} assets against input...`);
 
@@ -81,8 +113,14 @@ async function runSingleAssetSearch() {
 
     document.getElementById("fuzzyCount").textContent = matches.length;
   } catch (error) {
-    console.error(error);
-    updateAssetStatus(`Error: ${error.message}`);
+    if (error.name === "AbortError") {
+      updateAssetStatus("🛑 Process Stopped.");
+    } else {
+      console.error(error);
+      updateAssetStatus(`Error: ${error.message}`);
+    }
+  } finally {
+    if (stopBtn) stopBtn.style.display = "none";
   }
 }
 
@@ -119,11 +157,13 @@ async function runBulkAssetSearch() {
     }
 
     const inputRows = lines.map((line) => {
-      const parts = line.split(",");
+      // Robust split for quotes
+      const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+      const clean = (v) => (v ? v.trim().replace(/^"|"$/g, "").trim() : "");
       return {
-        propertyName: parts[0]?.trim() || "",
-        city: parts[1]?.trim() || "",
-        state: parts[2]?.trim() || "",
+        propertyName: clean(parts[0]),
+        city: clean(parts[1]),
+        state: clean(parts[2]),
       };
     });
 
@@ -132,50 +172,95 @@ async function runBulkAssetSearch() {
       return;
     }
 
+    if (assetAbortController) assetAbortController.abort();
+    assetAbortController = new AbortController();
+
     resetAssetUI();
     updateAssetStatus("Initializing Bulk Search...");
 
-    try {
-      const allAssets = await fetchAllAssets(apiKey, accountId);
+    const stopBtn = document.getElementById("stopAssetBtn");
+    if (stopBtn) stopBtn.style.display = "inline-block";
 
-      updateProgressBar(100);
-      updateAssetStatus(
-        `Master list obtained (${allAssets.length} assets). Processing ${inputRows.length} rows...`
+    try {
+      const allAssets = await fetchAllAssets(
+        apiKey,
+        accountId,
+        assetAbortController.signal,
       );
 
-      // Allow UI to update before heavy processing
+      updateProgressBar(0);
+      updateAssetStatus(
+        `Master list obtained (${allAssets.length} assets). Processing ${inputRows.length} rows...`,
+      );
       await new Promise((r) => setTimeout(r, 100));
 
-      const matches = performMatching(inputRows, allAssets);
+      let matches = [];
+      const BATCH_SIZE = 50; // Process in chunks to prevent UI freeze
+
+      for (let i = 0; i < inputRows.length; i += BATCH_SIZE) {
+        if (assetAbortController.signal.aborted)
+          throw new DOMException("Aborted", "AbortError");
+
+        const batch = inputRows.slice(i, i + BATCH_SIZE);
+        const batchMatches = performMatching(batch, allAssets);
+        matches.push(...batchMatches);
+
+        const pct = Math.floor(((i + batch.length) / inputRows.length) * 100);
+        updateProgressBar(pct);
+        updateAssetStatus(
+          `Matched ${Math.min(i + batch.length, inputRows.length)} of ${inputRows.length} rows...`,
+        );
+
+        // Yield to main thread
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      // Final sort of all matches
+      matches.sort((a, b) => {
+        const rankDiff = scoreRank(b.score) - scoreRank(a.score);
+        if (rankDiff !== 0) return rankDiff;
+        return parseFloat(b.score) - parseFloat(a.score);
+      });
 
       renderResults(matches);
       assetResults = matches;
 
+      updateProgressBar(100);
       updateAssetStatus(
-        `Bulk Process Complete. Processed ${matches.length} rows.`
+        `Bulk Process Complete. Processed ${matches.length} rows.`,
       );
       document.getElementById("fuzzyCount").textContent = matches.length;
     } catch (error) {
-      console.error(error);
-      updateAssetStatus(`Error: ${error.message}`);
+      if (error.name === "AbortError") {
+        updateAssetStatus("🛑 Bulk Process Stopped.");
+      } else {
+        console.error(error);
+        updateAssetStatus(`Error: ${error.message}`);
+      }
+    } finally {
+      if (stopBtn) stopBtn.style.display = "none";
     }
   };
 
   reader.readAsText(file);
 }
 
-async function fetchAllAssets(apiKey, accountId) {
+async function fetchAllAssets(apiKey, accountId, signal) {
   let allAssets = [];
   let nextUrl = `https://api.sightmap.com/v1/accounts/${accountId}/assets?per-page=500`;
-  let totalCount = 0; // To track progress
+  let totalCount = 0;
 
   while (nextUrl) {
+    if (signal && signal.aborted)
+      throw new DOMException("Aborted", "AbortError");
+
     const response = await fetch(nextUrl, {
       method: "GET",
       headers: {
         "API-Key": apiKey,
         "Experimental-Flags": "accounts-assets",
       },
+      signal: signal,
     });
 
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
@@ -190,7 +275,6 @@ async function fetchAllAssets(apiKey, accountId) {
 
     nextUrl = json.paging ? json.paging.next_url : null;
 
-    // Calculate Percentage
     let percent = 0;
     if (totalCount > 0) {
       percent = Math.floor((allAssets.length / totalCount) * 100);
@@ -200,10 +284,9 @@ async function fetchAllAssets(apiKey, accountId) {
 
     updateProgressBar(percent);
     updateAssetStatus(
-      `Fetching assets... ${allAssets.length} / ${totalCount || "?"}`
+      `Fetching assets... ${allAssets.length} / ${totalCount || "?"}`,
     );
 
-    // Prevent UI freeze
     await new Promise((r) => setTimeout(r, 0));
   }
   return allAssets;
@@ -220,10 +303,10 @@ function performMatching(propertyRows, assets) {
     for (let asset of assets) {
       const assetName = normalize(asset.name);
       const assetCity = normalize(
-        asset.address_city || (asset.address ? asset.address.city : "")
+        asset.address_city || (asset.address ? asset.address.city : ""),
       );
       const assetState = normalize(
-        asset.address_state || (asset.address ? asset.address.state : "")
+        asset.address_state || (asset.address ? asset.address.state : ""),
       );
 
       const score = combinedScore(
@@ -232,7 +315,7 @@ function performMatching(propertyRows, assets) {
         propCity,
         assetCity,
         propState,
-        assetState
+        assetState,
       );
 
       if (score > best.score) best = { score, asset };

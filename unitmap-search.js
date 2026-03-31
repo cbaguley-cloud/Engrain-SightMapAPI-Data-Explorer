@@ -1,4 +1,7 @@
+/* unitmap-search.js */
+
 let allMatches = [];
+let mapAbortController = null; // Added AbortController
 
 document.addEventListener("DOMContentLoaded", () => {
   // Buttons
@@ -13,7 +16,26 @@ document.addEventListener("DOMContentLoaded", () => {
   const copyClipBtn = document.getElementById("copyMapClipBtn");
   if (copyClipBtn) copyClipBtn.addEventListener("click", copyMapTable);
 
-  // Template
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopMapBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (mapAbortController) mapAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (mapAbortController) {
+      mapAbortController.abort();
+      const localStopBtn = document.getElementById("stopMapBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateStatus("🛑 Process globally terminated.");
+    }
+  });
+
+  // Template Download
   const templateLink = document.getElementById("mapTemplateLink");
   if (templateLink) {
     templateLink.addEventListener("click", (e) => {
@@ -29,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.body.removeChild(link);
     });
   }
+
   // Select All
   const selectAllCheckbox = document.getElementById("selectAllStyles");
   if (selectAllCheckbox) {
@@ -58,23 +81,45 @@ async function runSingleSearch() {
     return;
   }
 
+  if (mapAbortController) mapAbortController.abort();
+  mapAbortController = new AbortController();
+
   resetUI();
   updateStatus(`Fetching maps for Asset ${assetId}...`);
 
-  // VISUAL: Set to 50% while loading
-  document.getElementById("progressBar").style.width = "50%";
+  const stopBtn = document.getElementById("stopMapBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
 
-  await fetchAndProcessAsset(apiKey, assetId, targetStyles);
+  try {
+    // VISUAL: Set to 50% while loading
+    document.getElementById("progressBar").style.width = "50%";
 
-  // VISUAL: Set to 100% when done
-  document.getElementById("progressBar").style.width = "100%";
+    await fetchAndProcessAsset(
+      apiKey,
+      assetId,
+      targetStyles,
+      mapAbortController.signal,
+    );
 
-  if (allMatches.length > 0) {
-    updateStatus(`Done. Found ${allMatches.length} matches.`);
-  } else {
-    updateStatus(`No matches found for styles: ${targetStyles.join(", ")}`);
+    // VISUAL: Set to 100% when done
+    document.getElementById("progressBar").style.width = "100%";
+
+    if (allMatches.length > 0) {
+      updateStatus(`Done. Found ${allMatches.length} matches.`);
+    } else {
+      updateStatus(`No matches found for styles: ${targetStyles.join(", ")}`);
+    }
+    document.getElementById("mapCount").textContent = allMatches.length;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      updateStatus("🛑 Process Stopped.");
+    } else {
+      console.error(error);
+      updateStatus(`Error: ${error.message}`);
+    }
+  } finally {
+    if (stopBtn) stopBtn.style.display = "none";
   }
-  document.getElementById("mapCount").textContent = allMatches.length;
 }
 
 async function runBulkSearch() {
@@ -107,44 +152,70 @@ async function runBulkSearch() {
       return;
     }
 
+    if (mapAbortController) mapAbortController.abort();
+    mapAbortController = new AbortController();
+
     resetUI();
     updateStatus(`Found ${assetIds.length} assets. Starting bulk process...`);
 
-    let processed = 0;
-    for (const id of assetIds) {
+    const stopBtn = document.getElementById("stopMapBtn");
+    if (stopBtn) stopBtn.style.display = "inline-block";
+
+    try {
+      let processed = 0;
+      for (const id of assetIds) {
+        if (mapAbortController.signal.aborted)
+          throw new DOMException("Aborted", "AbortError");
+
+        updateStatus(
+          `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`,
+        );
+
+        await fetchAndProcessAsset(
+          apiKey,
+          id,
+          targetStyles,
+          mapAbortController.signal,
+        );
+
+        processed++;
+        // VISUAL: Update based on percentage
+        document.getElementById("progressBar").style.width =
+          `${(processed / assetIds.length) * 100}%`;
+        document.getElementById("mapCount").textContent = allMatches.length;
+
+        // Allow UI update
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
       updateStatus(
-        `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`
+        `Bulk Process Complete. Found ${allMatches.length} total matches.`,
       );
-
-      await fetchAndProcessAsset(apiKey, id, targetStyles);
-
-      processed++;
-      // VISUAL: Update based on percentage
-      document.getElementById("progressBar").style.width = `${
-        (processed / assetIds.length) * 100
-      }%`;
-      document.getElementById("mapCount").textContent = allMatches.length;
-
-      // Allow UI update
-      await new Promise((r) => setTimeout(r, 0));
+    } catch (error) {
+      if (error.name === "AbortError") {
+        updateStatus("🛑 Bulk Process Stopped.");
+      } else {
+        console.error(error);
+        updateStatus(`Error: ${error.message}`);
+      }
+    } finally {
+      if (stopBtn) stopBtn.style.display = "none";
     }
-
-    updateStatus(
-      `Bulk Process Complete. Found ${allMatches.length} total matches.`
-    );
   };
 
   reader.readAsText(file);
 }
 
-async function fetchAndProcessAsset(apiKey, assetId, targetStyles) {
+// Added `signal` parameter
+async function fetchAndProcessAsset(apiKey, assetId, targetStyles, signal) {
   try {
     const response = await fetch(
       `https://api.sightmap.com/v1/assets/${assetId}/multifamily/maps?page=1&per-page=500`,
       {
         method: "GET",
         headers: { "API-Key": apiKey },
-      }
+        signal: signal, // Attach the abort signal to the fetch request
+      },
     );
 
     if (!response.ok) {
@@ -169,7 +240,11 @@ async function fetchAndProcessAsset(apiKey, assetId, targetStyles) {
       }
     });
   } catch (error) {
-    console.error(`Error processing asset ${assetId}:`, error);
+    if (error.name !== "AbortError") {
+      console.error(`Error processing asset ${assetId}:`, error);
+    } else {
+      throw error; // Bubble up the abort error to stop the loop
+    }
   }
 }
 
@@ -179,7 +254,7 @@ function parseCSV(csvText) {
   let idIndex = 0;
   const headers = lines[0].toLowerCase().split(",");
   const foundIndex = headers.findIndex(
-    (h) => h.trim().includes("asset_id") || h.trim().includes("assetid")
+    (h) => h.trim().includes("asset_id") || h.trim().includes("assetid"),
   );
   if (foundIndex !== -1) idIndex = foundIndex;
   const startRow = foundIndex !== -1 ? 1 : 0;

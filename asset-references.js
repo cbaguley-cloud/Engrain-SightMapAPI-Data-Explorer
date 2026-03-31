@@ -1,4 +1,7 @@
+/* asset-references.js */
+
 let allReferences = [];
+let assetRefAbortController = null; // Added AbortController
 
 document.addEventListener("DOMContentLoaded", () => {
   // Buttons
@@ -15,9 +18,28 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("downloadRefCsvBtn")
     .addEventListener("click", downloadRefCSV);
 
-  // NEW: Copy to Clipboard Button
+  // Copy to Clipboard Button
   const copyClipBtn = document.getElementById("copyRefClipBtn");
   if (copyClipBtn) copyClipBtn.addEventListener("click", copyRefTable);
+
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopRefBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (assetRefAbortController) assetRefAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (assetRefAbortController) {
+      assetRefAbortController.abort();
+      const localStopBtn = document.getElementById("stopRefBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateAssetRefStatus("🛑 Process globally terminated.");
+    }
+  });
 
   // Template
   document.getElementById("refTemplateLink").addEventListener("click", (e) => {
@@ -41,15 +63,41 @@ async function runSingleRefSearch() {
     alert("Please enter API Key and Asset ID");
     return;
   }
+
+  if (assetRefAbortController) assetRefAbortController.abort();
+  assetRefAbortController = new AbortController();
+
   resetRefUI();
-  updateRefStatus(`Fetching references for Asset ${assetId}...`);
-  await fetchAndProcessReferences(apiKey, assetId);
-  if (allReferences.length > 0) {
-    updateRefStatus(`Done. Found ${allReferences.length} references.`);
-  } else {
-    updateRefStatus(`⚠️ No references found for Asset ${assetId}.`);
+  updateAssetRefStatus(`Fetching references for Asset ${assetId}...`);
+
+  const stopBtn = document.getElementById("stopRefBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
+
+  try {
+    document.getElementById("refProgressBar").style.width = `50%`;
+    await fetchAndProcessReferences(
+      apiKey,
+      assetId,
+      assetRefAbortController.signal,
+    );
+    document.getElementById("refProgressBar").style.width = `100%`;
+
+    if (allReferences.length > 0) {
+      updateAssetRefStatus(`Done. Found ${allReferences.length} references.`);
+    } else {
+      updateAssetRefStatus(`⚠️ No references found for Asset ${assetId}.`);
+    }
+    document.getElementById("refCount").textContent = allReferences.length;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      updateAssetRefStatus("🛑 Process Stopped.");
+    } else {
+      console.error(error);
+      updateAssetRefStatus(`Error: ${error.message}`);
+    }
+  } finally {
+    if (stopBtn) stopBtn.style.display = "none";
   }
-  document.getElementById("refCount").textContent = allReferences.length;
 }
 
 async function runBulkRefSearch() {
@@ -65,6 +113,7 @@ async function runBulkRefSearch() {
   }
   const file = fileInput.files[0];
   const reader = new FileReader();
+
   reader.onload = async function (e) {
     const text = e.target.result;
     const assetIds = parseRefCSV(text);
@@ -72,45 +121,81 @@ async function runBulkRefSearch() {
       alert("No Asset IDs found. Check CSV format.");
       return;
     }
+
+    if (assetRefAbortController) assetRefAbortController.abort();
+    assetRefAbortController = new AbortController();
+
     resetRefUI();
-    updateRefStatus(
+    updateAssetRefStatus(
       `Found ${assetIds.length} assets. Starting bulk process...`,
     );
-    let processed = 0;
-    for (const id of assetIds) {
-      updateRefStatus(
-        `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`,
+
+    const stopBtn = document.getElementById("stopRefBtn");
+    if (stopBtn) stopBtn.style.display = "inline-block";
+
+    try {
+      let processed = 0;
+      for (const id of assetIds) {
+        if (assetRefAbortController.signal.aborted)
+          throw new DOMException("Aborted", "AbortError");
+
+        updateAssetRefStatus(
+          `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`,
+        );
+
+        await fetchAndProcessReferences(
+          apiKey,
+          id,
+          assetRefAbortController.signal,
+        );
+
+        processed++;
+        document.getElementById("refProgressBar").style.width =
+          `${(processed / assetIds.length) * 100}%`;
+        document.getElementById("refCount").textContent = allReferences.length;
+
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      updateAssetRefStatus(
+        `Bulk Process Complete. Found ${allReferences.length} total references.`,
       );
-      await fetchAndProcessReferences(apiKey, id);
-      processed++;
-      document.getElementById("refProgressBar").style.width = `${
-        (processed / assetIds.length) * 100
-      }%`;
-      document.getElementById("refCount").textContent = allReferences.length;
-      await new Promise((r) => setTimeout(r, 0));
+    } catch (error) {
+      if (error.name === "AbortError") {
+        updateAssetRefStatus("🛑 Bulk Process Stopped.");
+      } else {
+        console.error(error);
+        updateAssetRefStatus(`Error: ${error.message}`);
+      }
+    } finally {
+      if (stopBtn) stopBtn.style.display = "none";
     }
-    updateRefStatus(
-      `Bulk Process Complete. Found ${allReferences.length} total references.`,
-    );
   };
   reader.readAsText(file);
 }
 
-async function fetchAndProcessReferences(apiKey, assetId) {
+async function fetchAndProcessReferences(apiKey, assetId, signal) {
   let nextUrl = `https://api.sightmap.com/v1/assets/${assetId}/multifamily/references?per-page=100`;
   try {
     while (nextUrl) {
+      if (signal && signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
+
       const response = await fetch(nextUrl, {
         method: "GET",
         headers: { "API-Key": apiKey, "Experimental-Flags": "references" },
+        signal: signal,
       });
+
       if (!response.ok) {
         if (response.status !== 404)
           console.error(`Asset ${assetId} error: ${response.status}`);
         return;
       }
+
       const jsonData = await response.json();
       const refData = jsonData.data || [];
+
       refData.forEach((ref) => {
         const matchObj = {
           asset_id: assetId,
@@ -122,10 +207,15 @@ async function fetchAndProcessReferences(apiKey, assetId) {
         allReferences.push(matchObj);
         addRefTableRow(matchObj);
       });
+
       nextUrl = jsonData.paging ? jsonData.paging.next_url : null;
     }
   } catch (error) {
-    console.error(`Error processing asset ${assetId}:`, error);
+    if (error.name !== "AbortError") {
+      console.error(`Error processing asset ${assetId}:`, error);
+    } else {
+      throw error;
+    }
   }
 }
 
@@ -162,9 +252,10 @@ function resetRefUI() {
   document.getElementById("refCount").textContent = "0";
 }
 
-function updateRefStatus(msg) {
+function updateAssetRefStatus(msg) {
   document.getElementById("refStatusMsg").textContent = msg;
 }
+
 function exportRefJSON() {
   if (allReferences.length === 0) {
     alert("No data");
@@ -173,6 +264,7 @@ function exportRefJSON() {
   navigator.clipboard.writeText(JSON.stringify(allReferences, null, 2));
   alert("Copied JSON");
 }
+
 function downloadRefCSV() {
   if (allReferences.length === 0) {
     alert("No data");

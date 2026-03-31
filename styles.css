@@ -104,6 +104,7 @@ hr {
   margin-right: auto;
   padding: 15px;
   align-items: center;
+  justify-content: center;
   width: fit-content;
   background-color: rgba(8, 11, 56, 0.8);
   display: flex;

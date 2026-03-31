@@ -1,7 +1,10 @@
+/* account-assets.js */
+
 let allAcctAssets = [];
 let uniqueCities = new Set();
 let uniqueStates = new Set();
 let uniqueTags = new Set();
+let acctAbortController = null; // Added AbortController
 
 document.addEventListener("DOMContentLoaded", () => {
   // Buttons
@@ -19,6 +22,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const copyClipBtn = document.getElementById("copyAcctClipBtn");
   if (copyClipBtn) copyClipBtn.addEventListener("click", copyAcctTable);
 
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopAcctBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (acctAbortController) acctAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (acctAbortController) {
+      acctAbortController.abort();
+      const localStopBtn = document.getElementById("stopAcctBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateAcctAssetStatus("🛑 Process globally terminated.");
+    }
+  });
+
   // Filter Listeners
   document
     .getElementById("acctFilterCity")
@@ -34,6 +56,7 @@ document.addEventListener("DOMContentLoaded", () => {
 async function runAccountAssetFetch() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const accountId = document.getElementById("acctAssetAccountId").value.trim();
+
   if (!apiKey) {
     alert("Please enter API Key.");
     return;
@@ -42,46 +65,81 @@ async function runAccountAssetFetch() {
     alert("Please enter Account ID.");
     return;
   }
+
+  if (acctAbortController) acctAbortController.abort();
+  acctAbortController = new AbortController();
+
   resetAcctAssetUI();
   updateAcctAssetStatus(`Fetching assets for Account ${accountId}...`);
+
+  const stopBtn = document.getElementById("stopAcctBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
+
   try {
-    const assets = await fetchAllAccountAssets(apiKey, accountId);
+    const assets = await fetchAllAccountAssets(
+      apiKey,
+      accountId,
+      acctAbortController.signal,
+    );
+
     if (assets.length === 0) {
       updateAcctAssetStatus(`⚠️ No assets found for Account ${accountId}.`);
       return;
     }
+
     allAcctAssets = assets;
     populateAcctFilters(assets);
     renderAcctAssetTable();
     updateAcctAssetStatus(`Done. Showing ${assets.length} assets.`);
   } catch (error) {
-    console.error(error);
-    updateAcctAssetStatus(`Error: ${error.message}`);
+    if (error.name === "AbortError") {
+      updateAcctAssetStatus("🛑 Process Stopped.");
+    } else {
+      console.error(error);
+      updateAcctAssetStatus(`Error: ${error.message}`);
+    }
+  } finally {
+    if (stopBtn) stopBtn.style.display = "none";
   }
 }
 
-async function fetchAllAccountAssets(apiKey, accountId) {
+async function fetchAllAccountAssets(apiKey, accountId, signal) {
   let assets = [];
   let nextUrl = `https://api.sightmap.com/v1/accounts/${accountId}/assets?per-page=500`;
+  let page = 0;
+
   while (nextUrl) {
+    if (signal && signal.aborted)
+      throw new DOMException("Aborted", "AbortError");
+
     const response = await fetch(nextUrl, {
       method: "GET",
       headers: { "API-Key": apiKey, "Experimental-Flags": "accounts-assets" },
+      signal: signal,
     });
+
     if (!response.ok) {
       if (response.status === 400 || response.status === 404)
         throw new Error(
-          `API Error ${response.status}: Check Account ID or Permissions.`
+          `API Error ${response.status}: Check Account ID or Permissions.`,
         );
       throw new Error(`API Error: ${response.status}`);
     }
+
     const json = await response.json();
     const data = json.data || [];
     assets = assets.concat(data);
     nextUrl = json.paging ? json.paging.next_url : null;
+
+    page++;
+    const prog = Math.min(page * 15, 95); // Fake progress since we don't always get total_count
+    document.getElementById("acctAssetProgressBar").style.width = `${prog}%`;
+
     updateAcctAssetStatus(`Fetching... (Loaded ${assets.length} assets)`);
     await new Promise((r) => setTimeout(r, 0));
   }
+
+  document.getElementById("acctAssetProgressBar").style.width = `100%`;
   return assets;
 }
 
@@ -134,7 +192,7 @@ function renderAcctAssetTable() {
     let tagsHtml = assetTags
       .map(
         (t) =>
-          `<span class="match-tag" style="font-size:0.7em; background:var(--col-slate); border:1px solid var(--col-purple);">${t}</span>`
+          `<span class="match-tag" style="font-size:0.7em; background:var(--col-slate); border:1px solid var(--col-purple);">${t}</span>`,
       )
       .join(" ");
     const row = `<tr><td style="font-family:monospace; color:var(--accent-light);">${

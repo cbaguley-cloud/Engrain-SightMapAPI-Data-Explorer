@@ -4,7 +4,7 @@ let refMatchResults = [];
 let refAbortController = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Option A & B Buttons (These match your new HTML)
+  // Option A & B Buttons
   const singleBtn = document.getElementById("runSingleRefMatchBtn");
   if (singleBtn) singleBtn.addEventListener("click", runSingleRefMatch);
 
@@ -20,6 +20,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const globalCheck = document.getElementById("globalRefSearchCheck");
   if (globalCheck) globalCheck.addEventListener("change", toggleRefGlobalInput);
+
+  // LOCAL STOP BUTTON LISTENER
+  const stopBtn = document.getElementById("stopRefMatchBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (refAbortController) refAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (refAbortController) {
+      refAbortController.abort();
+      const localStopBtn = document.getElementById("stopRefMatchBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateRefMatchStatus("🛑 Process globally terminated.");
+    }
+  });
 
   // Template Download
   const tmplLink = document.getElementById("refMatchTemplateLink");
@@ -132,7 +151,6 @@ async function runBulkRefMatch() {
     }
 
     const inputRows = lines.map((line) => {
-      // Handles commas inside quotes correctly
       const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
       const clean = (v) => (v ? v.trim().replace(/^"|"$/g, "").trim() : "");
       return {
@@ -163,7 +181,11 @@ async function executeRefMatchCore(params, inputRows) {
 
   resetRefMatchUI();
 
-  updateRefStatus("Step 1/2: Fetching Asset List...");
+  // SHOW BUTTON ON START
+  const stopBtn = document.getElementById("stopRefMatchBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
+
+  updateRefMatchStatus("Step 1/2: Fetching Asset List...");
   let url = isGlobal
     ? `https://api.sightmap.com/v1/assets?per-page=250`
     : `https://api.sightmap.com/v1/accounts/${accountId}/assets?per-page=250`;
@@ -172,7 +194,7 @@ async function executeRefMatchCore(params, inputRows) {
     const assets = await fetchAssetList(apiKey, url, refAbortController.signal);
 
     const keyStatusMsg = filterKey ? ` (Filtered by Key: ${filterKey})` : "";
-    updateRefStatus(
+    updateRefMatchStatus(
       `Step 2/2: Deep Scanning ${assets.length} assets for references${keyStatusMsg}...`,
     );
 
@@ -183,25 +205,29 @@ async function executeRefMatchCore(params, inputRows) {
       refAbortController.signal,
     );
 
-    updateRefProgressBar(100);
-    updateRefStatus(
+    updateRefMatchProgressBar(100);
+    updateRefMatchStatus(
       `Matching ${inputRows.length} inputs against ${enrichedAssets.length} assets...`,
     );
 
+    // Matching logic
     const matches = performRefMatching(inputRows, enrichedAssets);
     renderRefResults(matches);
     refMatchResults = matches;
 
-    updateRefStatus(
+    updateRefMatchStatus(
       `Process Complete. Found ${matches.filter((m) => m.matchedId).length} matches.`,
     );
   } catch (error) {
     if (error.name === "AbortError") {
-      updateRefStatus("Cancelled.");
+      updateRefMatchStatus("🛑 Process Stopped.");
     } else {
       console.error(error);
-      updateRefStatus(`Error: ${error.message}`);
+      updateRefMatchStatus(`Error: ${error.message}`);
     }
+  } finally {
+    // HIDE BUTTON ON SUCCESS OR ERROR
+    if (stopBtn) stopBtn.style.display = "none";
   }
 }
 
@@ -235,8 +261,8 @@ async function fetchAssetList(apiKey, initialUrl, signal) {
 
     let percent =
       totalCount > 0 ? Math.floor((allAssets.length / totalCount) * 50) : 25;
-    updateRefProgressBar(percent);
-    updateRefStatus(
+    updateRefMatchProgressBar(percent);
+    updateRefMatchStatus(
       `Fetching Asset List... ${allAssets.length} / ${totalCount || "?"}`,
     );
 
@@ -259,7 +285,6 @@ async function enrichAssetsWithReferences(apiKey, assets, filterKey, signal) {
     await Promise.all(
       batch.map(async (asset) => {
         try {
-          // FIXED: Using the new Unitmap API Endpoint
           let url = `https://api.unitmap.com/v1/assets/references?asset=${asset.id}&per-page=1000`;
 
           if (filterKey) {
@@ -290,8 +315,8 @@ async function enrichAssetsWithReferences(apiKey, assets, filterKey, signal) {
 
     completed += batch.length;
     const percent = 50 + Math.floor((completed / total) * 50);
-    updateRefProgressBar(percent);
-    updateRefStatus(
+    updateRefMatchProgressBar(percent);
+    updateRefMatchStatus(
       `Deep Scanning: Fetched references for ${completed} / ${total} assets...`,
     );
 
@@ -300,7 +325,7 @@ async function enrichAssetsWithReferences(apiKey, assets, filterKey, signal) {
   return assets;
 }
 
-// STEP 3: Matching Logic (Preserved from your original logic)
+// STEP 3: Matching Logic
 function performRefMatching(rows, assets) {
   return rows.map((row) => {
     const inputRef = row.refId ? String(row.refId).trim().toLowerCase() : "";
@@ -331,15 +356,13 @@ function performRefMatching(rows, assets) {
         const sim = similarityRef(inputName, aName);
         const tok = tokenMatchScoreRef(inputName, aName);
 
-        // Cap name matches at 0.9
         currentScore = (sim * 0.6 + tok * 0.4) * 0.9;
         matchMethod = "Fuzzy Name";
       }
 
-      // Update Best
       if (currentScore > best.score) {
         best = { score: currentScore, asset: asset, method: matchMethod };
-        if (best.score === 1.0) break; // Perfect match found, stop checking assets
+        if (best.score === 1.0) break;
       }
     }
 
@@ -454,18 +477,18 @@ function renderRefResults(matches) {
 function resetRefMatchUI() {
   refMatchResults = [];
   document.querySelector("#refMatchTable tbody").innerHTML = "";
-  updateRefProgressBar(0);
+  updateRefMatchProgressBar(0);
   const countSpan = document.getElementById("refMatchCount");
   if (countSpan) countSpan.textContent = "0";
-  updateRefStatus("Starting search...");
+  updateRefMatchStatus("Starting search...");
 }
 
-function updateRefStatus(msg) {
+function updateRefMatchStatus(msg) {
   const el = document.getElementById("refMatchStatusMsg");
   if (el) el.textContent = msg;
 }
 
-function updateRefProgressBar(percent) {
+function updateRefMatchProgressBar(percent) {
   const bar = document.getElementById("refMatchProgressBar");
   if (bar) {
     bar.style.width = `${percent}%`;

@@ -19,6 +19,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const copyBtn = document.getElementById("copyAuditClipBtn");
   if (copyBtn) copyBtn.addEventListener("click", copyAuditTable);
 
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopAuditBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (auditAbortController) auditAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (auditAbortController) {
+      auditAbortController.abort();
+      const localStopBtn = document.getElementById("stopAuditBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateAuditStatus("🛑 Process globally terminated.");
+    }
+  });
+
   // --- Template Link ---
   const tmplLink = document.getElementById("auditTemplateLink");
   if (tmplLink) {
@@ -125,11 +144,15 @@ async function runAccountAudit() {
   const file = fileInput.files[0];
   const reader = new FileReader();
 
+  const stopBtn = document.getElementById("stopAuditBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
+
   reader.onload = async function (e) {
     try {
       const csvData = parseAuditCSV(e.target.result);
       if (csvData.length === 0) {
         alert("No valid rows found in CSV.");
+        if (stopBtn) stopBtn.style.display = "none";
         return;
       }
 
@@ -146,6 +169,7 @@ async function runAccountAudit() {
 
       if (assets.length === 0) {
         updateAuditStatus("No assets found in this account.");
+        if (stopBtn) stopBtn.style.display = "none";
         return;
       }
 
@@ -166,16 +190,35 @@ async function runAccountAudit() {
         document.getElementById("auditProgressBar").style.width = "60%";
       }
 
+      // Check abort before heavy math
+      if (auditAbortController.signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
+
       // --- MATCHING ---
       updateAuditStatus("Step 3: Auditing data (Pass 1 - Strict)...");
       await new Promise((r) => setTimeout(r, 50));
-      auditResults = performAuditMatching(csvData, assets, refMap);
+
+      // We pass the signal to performAuditMatching to break out of huge loops
+      auditResults = await performAuditMatching(
+        csvData,
+        assets,
+        refMap,
+        auditAbortController.signal,
+      );
+
+      // Check abort before Pass 2
+      if (auditAbortController.signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
 
       updateAuditStatus(
         "Step 4: Running Double Check (Pass 2 - Gap Analysis)...",
       );
       await new Promise((r) => setTimeout(r, 50));
-      const recoveredCount = refineAuditResults(auditResults, assets);
+      const recoveredCount = await refineAuditResults(
+        auditResults,
+        assets,
+        auditAbortController.signal,
+      );
 
       renderAuditResults(auditResults);
 
@@ -193,11 +236,13 @@ async function runAccountAudit() {
       if (umBtn2) umBtn2.style.display = "inline-block";
     } catch (err) {
       if (err.name === "AbortError") {
-        updateAuditStatus("Audit Cancelled.");
+        updateAuditStatus("🛑 Audit Stopped.");
       } else {
         console.error(err);
         updateAuditStatus(`❌ Error: ${err.message}`);
       }
+    } finally {
+      if (stopBtn) stopBtn.style.display = "none";
     }
   };
   reader.readAsText(file);
@@ -207,69 +252,84 @@ async function runAccountAudit() {
 // MATCHING LOGIC (ENHANCED)
 // ==========================================
 
-function performAuditMatching(inputRows, assets, refMap) {
+// Made Async to allow yielding and abort checking
+async function performAuditMatching(inputRows, assets, refMap, signal) {
   const assetIdMap = new Map();
   assets.forEach((a) => assetIdMap.set(String(a.id), a));
 
-  return inputRows.map((row) => {
-    let match = null;
-    let method = "-";
-    let score = 0;
+  let results = [];
 
-    // 1. Asset ID
-    if (row.asset_id && assetIdMap.has(String(row.asset_id))) {
-      match = assetIdMap.get(String(row.asset_id));
-      method = "Asset ID (Exact)";
-      score = 1.0;
-    }
-    // 2. Reference ID
-    else if (
-      row.ref_id &&
-      refMap.has(String(row.ref_id).trim().toLowerCase())
-    ) {
-      match = refMap.get(String(row.ref_id).trim().toLowerCase());
-      method = "Reference ID (Exact)";
-      score = 1.0;
-    }
-    // 3. Fuzzy (Pass 1 - Strict State Filter)
-    else {
-      let candidates = assets;
+  // Batch processing to prevent UI freezing and allow aborting
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < inputRows.length; i += BATCH_SIZE) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 
-      // Smart State Filter: Normalize "Florida" -> "FL"
-      if (row.state) {
-        const rowStateCode = normalizeState(row.state);
-        const stateFiltered = assets.filter((a) => {
-          if (!a.address_state) return false;
-          return normalizeState(a.address_state) === rowStateCode;
-        });
-        if (stateFiltered.length > 0) candidates = stateFiltered;
+    const batch = inputRows.slice(i, i + BATCH_SIZE);
+
+    const batchResults = batch.map((row) => {
+      let match = null;
+      let method = "-";
+      let score = 0;
+
+      // 1. Asset ID
+      if (row.asset_id && assetIdMap.has(String(row.asset_id))) {
+        match = assetIdMap.get(String(row.asset_id));
+        method = "Asset ID (Exact)";
+        score = 1.0;
       }
+      // 2. Reference ID
+      else if (
+        row.ref_id &&
+        refMap.has(String(row.ref_id).trim().toLowerCase())
+      ) {
+        match = refMap.get(String(row.ref_id).trim().toLowerCase());
+        method = "Reference ID (Exact)";
+        score = 1.0;
+      }
+      // 3. Fuzzy (Pass 1 - Strict State Filter)
+      else {
+        let candidates = assets;
 
-      let bestScore = 0;
-      let bestAsset = null;
-      candidates.forEach((asset) => {
-        const fuzzyScore = calculateAuditFuzzyScore(row, asset);
-        if (fuzzyScore > bestScore) {
-          bestScore = fuzzyScore;
-          bestAsset = asset;
+        if (row.state) {
+          const rowStateCode = normalizeState(row.state);
+          const stateFiltered = assets.filter((a) => {
+            if (!a.address_state) return false;
+            return normalizeState(a.address_state) === rowStateCode;
+          });
+          if (stateFiltered.length > 0) candidates = stateFiltered;
         }
-      });
 
-      if (bestScore > 0.82) {
-        // Higher threshold for Pass 1
-        match = bestAsset;
-        method = `Fuzzy (${(bestScore * 100).toFixed(0)}%)`;
-        score = bestScore;
+        let bestScore = 0;
+        let bestAsset = null;
+        candidates.forEach((asset) => {
+          const fuzzyScore = calculateAuditFuzzyScore(row, asset);
+          if (fuzzyScore > bestScore) {
+            bestScore = fuzzyScore;
+            bestAsset = asset;
+          }
+        });
+
+        if (bestScore > 0.82) {
+          match = bestAsset;
+          method = `Fuzzy (${(bestScore * 100).toFixed(0)}%)`;
+          score = bestScore;
+        }
       }
-    }
 
-    let status = "MISSING";
-    if (match) status = "MATCHED";
-    return { status, method, score, input: row, match: match };
-  });
+      let status = "MISSING";
+      if (match) status = "MATCHED";
+      return { status, method, score, input: row, match: match };
+    });
+
+    results.push(...batchResults);
+    await new Promise((r) => setTimeout(r, 0)); // Yield to main thread
+  }
+
+  return results;
 }
 
-function refineAuditResults(results, allAssets) {
+// Made Async to allow yielding and abort checking
+async function refineAuditResults(results, allAssets, signal) {
   const usedAssetIds = new Set();
   results.forEach((r) => {
     if (r.match) usedAssetIds.add(String(r.match.id));
@@ -278,42 +338,51 @@ function refineAuditResults(results, allAssets) {
   const unusedAssets = allAssets.filter((a) => !usedAssetIds.has(String(a.id)));
   let recoveredCount = 0;
 
-  results.forEach((r) => {
-    if (r.status === "MISSING") {
-      let bestScore = 0;
-      let bestAsset = null;
+  const BATCH_SIZE = 100;
 
-      unusedAssets.forEach((asset) => {
-        const score = calculateAuditFuzzyScore(r.input, asset);
-        if (score > bestScore) {
-          bestScore = score;
-          bestAsset = asset;
+  for (let i = 0; i < results.length; i += BATCH_SIZE) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+    const batch = results.slice(i, i + BATCH_SIZE);
+
+    batch.forEach((r) => {
+      if (r.status === "MISSING") {
+        let bestScore = 0;
+        let bestAsset = null;
+
+        unusedAssets.forEach((asset) => {
+          const score = calculateAuditFuzzyScore(r.input, asset);
+          if (score > bestScore) {
+            bestScore = score;
+            bestAsset = asset;
+          }
+        });
+
+        if (bestScore > 0.7) {
+          r.match = bestAsset;
+          r.method = `Gap Analysis (${(bestScore * 100).toFixed(0)}%)`;
+          r.score = bestScore;
+          r.status = "MATCHED";
+
+          const idx = unusedAssets.findIndex((a) => a.id === bestAsset.id);
+          if (idx > -1) unusedAssets.splice(idx, 1);
+          recoveredCount++;
+        } else if (bestScore > 0.55) {
+          r.match = bestAsset;
+          r.method = `Potential (${(bestScore * 100).toFixed(0)}%)`;
+          r.score = bestScore;
+          r.status = "UNCERTAIN";
+
+          const idx = unusedAssets.findIndex((a) => a.id === bestAsset.id);
+          if (idx > -1) unusedAssets.splice(idx, 1);
+          recoveredCount++;
         }
-      });
-
-      // Lower thresholds for Pass 2 because we are comparing leftovers
-      if (bestScore > 0.7) {
-        r.match = bestAsset;
-        r.method = `Gap Analysis (${(bestScore * 100).toFixed(0)}%)`;
-        r.score = bestScore;
-        r.status = "MATCHED";
-
-        // Remove from pool
-        const idx = unusedAssets.findIndex((a) => a.id === bestAsset.id);
-        if (idx > -1) unusedAssets.splice(idx, 1);
-        recoveredCount++;
-      } else if (bestScore > 0.55) {
-        r.match = bestAsset;
-        r.method = `Potential (${(bestScore * 100).toFixed(0)}%)`;
-        r.score = bestScore;
-        r.status = "UNCERTAIN";
-
-        const idx = unusedAssets.findIndex((a) => a.id === bestAsset.id);
-        if (idx > -1) unusedAssets.splice(idx, 1);
-        recoveredCount++;
       }
-    }
-  });
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
   return recoveredCount;
 }
 
@@ -523,7 +592,7 @@ function auditSimilarity(a, b) {
 }
 
 // ==========================================
-// DATA FETCHING (Unchanged logic)
+// DATA FETCHING
 // ==========================================
 
 async function fetchAssetsForAudit(apiKey, accountId, signal) {
@@ -581,7 +650,7 @@ async function buildAuditReferenceMap(apiKey, assets, signal) {
 }
 
 // ==========================================
-// PARSING & RENDERING (Unchanged logic)
+// PARSING & RENDERING
 // ==========================================
 
 function parseAuditCSV(text) {
@@ -630,7 +699,8 @@ function parseAuditCSV(text) {
 
 function renderAuditResults(results) {
   const tbody = document.querySelector("#auditTable tbody");
-  tbody.innerHTML = "";
+  let rowHtml = ""; // Build string to insert all at once for performance
+
   results.forEach((r) => {
     let badgeColor = "#52525b";
     if (r.status === "MATCHED") badgeColor = "#4ade80";
@@ -644,7 +714,7 @@ function renderAuditResults(results) {
         .join(", ");
       if (m.auditRefs.length > 3) mRefs += "...";
     }
-    const row = `<tr>
+    rowHtml += `<tr>
         <td><span class="match-tag" style="background-color:${badgeColor}; color:#000;">${r.status}</span></td>
         <td style="font-size:0.85rem;">${r.method}</td>
         <td style="font-family:monospace; color:#ccc;">${r.input.asset_id || ""}</td>
@@ -660,8 +730,9 @@ function renderAuditResults(results) {
         <td style="color:#aaa;">${m.address_city || "-"}</td>
         <td style="color:#aaa;">${m.address_state || "-"}</td>
       </tr>`;
-    tbody.insertAdjacentHTML("beforeend", row);
   });
+
+  tbody.innerHTML = rowHtml;
   document.getElementById("auditCount").textContent = results.length;
 }
 
@@ -677,7 +748,6 @@ function updateAuditStatus(msg) {
 }
 
 function downloadAuditCSV() {
-  // ... existing logic ...
   if (auditResults.length === 0) {
     alert("No results.");
     return;
@@ -702,7 +772,6 @@ function downloadAuditCSV() {
 }
 
 function copyAuditTable() {
-  // ... existing logic ...
   if (auditResults.length === 0) {
     alert("No results.");
     return;
@@ -728,13 +797,13 @@ function calculateAndShowUnmatched() {
     (asset) => !matchedIds.has(String(asset.id)),
   );
   const tbody = document.querySelector("#unmatchedTable tbody");
-  tbody.innerHTML = "";
+  let html = "";
   document.getElementById("unmatchedCount").textContent =
     unmatchedAssets.length;
   unmatchedAssets.forEach((asset) => {
-    const row = `<tr><td style="font-family:monospace; color:var(--accent-light); font-weight:bold;">${asset.id}</td><td>${asset.name}</td><td>${asset.address_line1 || "-"}</td><td>${asset.address_city || "-"}</td><td>${asset.address_state || "-"}</td></tr>`;
-    tbody.insertAdjacentHTML("beforeend", row);
+    html += `<tr><td style="font-family:monospace; color:var(--accent-light); font-weight:bold;">${asset.id}</td><td>${asset.name}</td><td>${asset.address_line1 || "-"}</td><td>${asset.address_city || "-"}</td><td>${asset.address_state || "-"}</td></tr>`;
   });
+  tbody.innerHTML = html;
 }
 
 function copyUnmatchedTable() {
@@ -774,13 +843,13 @@ function calculateAndShowUnmatchedInputs() {
     .filter((r) => r.status !== "MATCHED" && r.status !== "UNCERTAIN")
     .map((r) => r.input);
   const tbody = document.querySelector("#unmatchedInputTable tbody");
-  tbody.innerHTML = "";
+  let html = "";
   document.getElementById("unmatchedInputCount").textContent =
     unmatchedInputs.length;
   unmatchedInputs.forEach((i) => {
-    const row = `<tr><td style="font-family:monospace; color:#ccc;">${i.asset_id || "-"}</td><td style="font-family:monospace; color:#ccc;">${i.ref_id || "-"}</td><td>${i.name}</td><td>${i.address || "-"}</td><td>${i.city || "-"}</td><td>${i.state || "-"}</td></tr>`;
-    tbody.insertAdjacentHTML("beforeend", row);
+    html += `<tr><td style="font-family:monospace; color:#ccc;">${i.asset_id || "-"}</td><td style="font-family:monospace; color:#ccc;">${i.ref_id || "-"}</td><td>${i.name}</td><td>${i.address || "-"}</td><td>${i.city || "-"}</td><td>${i.state || "-"}</td></tr>`;
   });
+  tbody.innerHTML = html;
 }
 
 function copyUnmatchedInputTable() {

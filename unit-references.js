@@ -1,5 +1,6 @@
 let allUnitReferences = [];
 let uniqueKeys = new Set();
+let unitRefAbortController = null; // Added AbortController
 
 document.addEventListener("DOMContentLoaded", () => {
   document
@@ -21,6 +22,25 @@ document.addEventListener("DOMContentLoaded", () => {
   document
     .getElementById("unitRefKeyFilter")
     .addEventListener("change", renderUnitRefTable);
+
+  // LOCAL STOP BUTTON
+  const stopBtn = document.getElementById("stopUnitRefBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => {
+      if (unitRefAbortController) unitRefAbortController.abort();
+      stopBtn.style.display = "none";
+    });
+  }
+
+  // GLOBAL KILL SWITCH LISTENER
+  window.addEventListener("killAllProcesses", () => {
+    if (unitRefAbortController) {
+      unitRefAbortController.abort();
+      const localStopBtn = document.getElementById("stopUnitRefBtn");
+      if (localStopBtn) localStopBtn.style.display = "none";
+      updateUnitRefStatus("🛑 Process globally terminated.");
+    }
+  });
 
   document
     .getElementById("unitRefTemplateLink")
@@ -48,23 +68,44 @@ async function runSingleUnitRefSearch() {
     return;
   }
 
+  if (unitRefAbortController) unitRefAbortController.abort();
+  unitRefAbortController = new AbortController();
+
   resetUnitRefUI();
   updateUnitRefStatus(`Fetching unit references for Asset ${assetId}...`);
 
-  // 1. START PROGRESS BAR ANIMATION (50%)
-  document.getElementById("unitRefProgressBar").style.width = "50%";
+  const stopBtn = document.getElementById("stopUnitRefBtn");
+  if (stopBtn) stopBtn.style.display = "inline-block";
 
-  await processAssetUnitReferences(apiKey, assetId);
+  try {
+    // 1. START PROGRESS BAR ANIMATION (50%)
+    document.getElementById("unitRefProgressBar").style.width = "50%";
 
-  // 2. FINISH ANIMATION (100%)
-  document.getElementById("unitRefProgressBar").style.width = "100%";
-
-  if (allUnitReferences.length > 0) {
-    updateUnitRefStatus(
-      `Done. Found ${allUnitReferences.length} unit references.`
+    await processAssetUnitReferences(
+      apiKey,
+      assetId,
+      unitRefAbortController.signal,
     );
-  } else {
-    updateUnitRefStatus(`⚠️ No unit references found for Asset ${assetId}.`);
+
+    // 2. FINISH ANIMATION (100%)
+    document.getElementById("unitRefProgressBar").style.width = "100%";
+
+    if (allUnitReferences.length > 0) {
+      updateUnitRefStatus(
+        `Done. Found ${allUnitReferences.length} unit references.`,
+      );
+    } else {
+      updateUnitRefStatus(`⚠️ No unit references found for Asset ${assetId}.`);
+    }
+  } catch (error) {
+    if (error.name === "AbortError") {
+      updateUnitRefStatus("🛑 Process Stopped.");
+    } else {
+      console.error(error);
+      updateUnitRefStatus(`Error: ${error.message}`);
+    }
+  } finally {
+    if (stopBtn) stopBtn.style.display = "none";
   }
 }
 
@@ -94,66 +135,97 @@ async function runBulkUnitRefSearch() {
       return;
     }
 
+    if (unitRefAbortController) unitRefAbortController.abort();
+    unitRefAbortController = new AbortController();
+
     resetUnitRefUI();
     updateUnitRefStatus(
-      `Found ${assetIds.length} assets. Starting bulk process...`
+      `Found ${assetIds.length} assets. Starting bulk process...`,
     );
 
-    let processed = 0;
-    for (const id of assetIds) {
+    const stopBtn = document.getElementById("stopUnitRefBtn");
+    if (stopBtn) stopBtn.style.display = "inline-block";
+
+    try {
+      let processed = 0;
+      for (const id of assetIds) {
+        if (unitRefAbortController.signal.aborted)
+          throw new DOMException("Aborted", "AbortError");
+
+        updateUnitRefStatus(
+          `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`,
+        );
+
+        await processAssetUnitReferences(
+          apiKey,
+          id,
+          unitRefAbortController.signal,
+        );
+
+        processed++;
+
+        // BULK ANIMATION
+        document.getElementById("unitRefProgressBar").style.width = `${
+          (processed / assetIds.length) * 100
+        }%`;
+
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
       updateUnitRefStatus(
-        `Processing Asset ${id} (${processed + 1}/${assetIds.length})...`
+        `Bulk Process Complete. Found ${allUnitReferences.length} total unit references.`,
       );
-
-      await processAssetUnitReferences(apiKey, id);
-
-      processed++;
-
-      // BULK ANIMATION
-      document.getElementById("unitRefProgressBar").style.width = `${
-        (processed / assetIds.length) * 100
-      }%`;
-
-      await new Promise((r) => setTimeout(r, 0));
+    } catch (error) {
+      if (error.name === "AbortError") {
+        updateUnitRefStatus("🛑 Bulk Process Stopped.");
+      } else {
+        console.error(error);
+        updateUnitRefStatus(`Error: ${error.message}`);
+      }
+    } finally {
+      if (stopBtn) stopBtn.style.display = "none";
     }
-
-    updateUnitRefStatus(
-      `Bulk Process Complete. Found ${allUnitReferences.length} total unit references.`
-    );
   };
 
   reader.readAsText(file);
 }
 
-// CORE LOGIC
-async function processAssetUnitReferences(apiKey, assetId) {
+// CORE LOGIC (Added signal passing to nested functions)
+async function processAssetUnitReferences(apiKey, assetId, signal) {
   try {
-    const groups = await fetchReferenceGroups(apiKey, assetId);
+    const groups = await fetchReferenceGroups(apiKey, assetId, signal);
     if (groups.length === 0) return;
 
     for (const group of groups) {
-      await fetchUnitReferencesForGroup(apiKey, assetId, group);
+      if (signal && signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
+      await fetchUnitReferencesForGroup(apiKey, assetId, group, signal);
     }
   } catch (error) {
+    if (error.name === "AbortError") throw error; // Bubble up
     console.error(`Error processing asset ${assetId}:`, error);
   }
 }
 
-async function fetchReferenceGroups(apiKey, assetId) {
+async function fetchReferenceGroups(apiKey, assetId, signal) {
   let allGroups = [];
   let nextUrl = `https://api.sightmap.com/v1/assets/${assetId}/multifamily/units/reference-groups?per-page=100`;
 
   try {
     while (nextUrl) {
+      if (signal && signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
+
       const response = await fetch(nextUrl, {
         method: "GET",
         headers: { "API-Key": apiKey, "Experimental-Flags": "references" },
+        signal: signal,
       });
 
       if (!response.ok) {
         if (response.status !== 404)
           console.warn(
-            `Error fetching groups for ${assetId}: ${response.status}`
+            `Error fetching groups for ${assetId}: ${response.status}`,
           );
         return [];
       }
@@ -163,19 +235,24 @@ async function fetchReferenceGroups(apiKey, assetId) {
       nextUrl = jsonData.paging ? jsonData.paging.next_url : null;
     }
   } catch (e) {
+    if (e.name === "AbortError") throw e; // Bubble up
     console.warn(e);
   }
   return allGroups;
 }
 
-async function fetchUnitReferencesForGroup(apiKey, assetId, group) {
+async function fetchUnitReferencesForGroup(apiKey, assetId, group, signal) {
   let nextUrl = `https://api.sightmap.com/v1/assets/${assetId}/multifamily/units/reference-groups/${group.id}/references?per-page=100`;
 
   try {
     while (nextUrl) {
+      if (signal && signal.aborted)
+        throw new DOMException("Aborted", "AbortError");
+
       const response = await fetch(nextUrl, {
         method: "GET",
         headers: { "API-Key": apiKey, "Experimental-Flags": "references" },
+        signal: signal,
       });
 
       if (!response.ok) return;
@@ -204,6 +281,7 @@ async function fetchUnitReferencesForGroup(apiKey, assetId, group) {
       await new Promise((r) => setTimeout(r, 0));
     }
   } catch (e) {
+    if (e.name === "AbortError") throw e; // Bubble up
     console.warn(e);
   }
 }
@@ -247,7 +325,7 @@ function parseUnitRefCSV(csvText) {
   let idIndex = 0;
   const headers = lines[0].toLowerCase().split(",");
   const foundIndex = headers.findIndex(
-    (h) => h.trim().includes("asset_id") || h.trim().includes("assetid")
+    (h) => h.trim().includes("asset_id") || h.trim().includes("assetid"),
   );
   if (foundIndex !== -1) idIndex = foundIndex;
   const startRow = foundIndex !== -1 ? 1 : 0;
@@ -278,6 +356,7 @@ function resetUnitRefUI() {
 function updateUnitRefStatus(msg) {
   document.getElementById("unitRefStatusMsg").textContent = msg;
 }
+
 function exportUnitRefJSON() {
   if (allUnitReferences.length === 0) {
     alert("No data");
@@ -286,6 +365,7 @@ function exportUnitRefJSON() {
   navigator.clipboard.writeText(JSON.stringify(allUnitReferences, null, 2));
   alert("Copied JSON");
 }
+
 function downloadUnitRefCSV() {
   if (allUnitReferences.length === 0) {
     alert("No data");

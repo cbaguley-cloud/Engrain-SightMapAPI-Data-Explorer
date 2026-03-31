@@ -28,8 +28,43 @@
         border-bottom: none;
       "
     >
-      <h2 style="color: white">SightMap API Data Explorer</h2>
-      <div>
+      <div
+        style="
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          align-items: center;
+        "
+      >
+        <div></div>
+
+        <h2
+          style="
+            color: white;
+            margin: 0;
+            text-align: center;
+            white-space: nowrap;
+          "
+        >
+          Engrain API Data Explorer
+        </h2>
+
+        <div style="text-align: right">
+          <button
+            id="killAllBtn"
+            class="secondary-btn"
+            style="
+              background-color: #991b1b;
+              border-color: #7f1d1d;
+              color: white;
+              font-weight: bold;
+              box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            "
+          >
+            🛑 KILL ALL PROCESSES
+          </button>
+        </div>
+      </div>
+      <div style="margin-top: 15px">
         <label class="section-label">API Key (Required for all tools)</label>
         <input type="text" id="apiKey" placeholder="Paste API Key here..." />
       </div>
@@ -53,6 +88,9 @@
       </button>
       <button class="tab-btn" onclick="openTab('tab-global-fuzzy')">
         Global Fuzzy Match
+      </button>
+      <button class="tab-btn" onclick="openTab('tab-pricing')">
+        Pricing Processes
       </button>
       <button class="tab-btn" onclick="openTab('tab-expenses')">
         Asset Expenses
@@ -178,7 +216,30 @@
             </ul>
           </span>
         </div>
-        <div id="statusMsg" class="status">Ready.</div>
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 20px;
+          "
+        >
+          <div id="statusMsg" class="status">Ready.</div>
+          <button
+            id="stopMapBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
+        </div>
         <div
           id="progressBar"
           style="
@@ -270,7 +331,30 @@
             </ul>
           </span>
         </div>
-        <div id="listStatusMsg" class="status">Ready.</div>
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 20px;
+          "
+        >
+          <div id="listStatusMsg" class="status">Ready.</div>
+          <button
+            id="stopListBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
+        </div>
         <div
           id="listProgressBar"
           style="
@@ -371,8 +455,29 @@
             </ul>
           </span>
         </div>
-        <div id="acctAssetStatusMsg" class="status" style="margin-top: 15px">
-          Ready.
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 15px;
+          "
+        >
+          <div id="acctAssetStatusMsg" class="status">Ready.</div>
+          <button
+            id="stopAcctBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
         </div>
         <div
           id="acctAssetProgressBar"
@@ -503,8 +608,29 @@
             </ul>
           </span>
         </div>
-        <div id="assetStatusMsg" class="status" style="margin-top: 20px">
-          Ready to scan account.
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 20px;
+          "
+        >
+          <div id="assetStatusMsg" class="status">Ready to scan account.</div>
+          <button
+            id="stopAssetBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
         </div>
         <div
           id="assetProgressBar"
@@ -780,9 +906,31 @@
           </span>
         </div>
 
-        <div id="refMatchStatusMsg" class="status" style="margin-top: 20px">
-          Ready.
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 20px;
+          "
+        >
+          <div id="refMatchStatusMsg" class="status">Ready.</div>
+          <button
+            id="stopRefMatchBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
         </div>
+
         <div class="progress-container" style="margin-top: 10px">
           <div
             id="refMatchProgressBar"
@@ -926,9 +1074,34 @@
             </ul>
           </span>
         </div>
-        <div id="gfStatusMsg" class="status" style="margin-top: 20px">
-          Ready to scan global database.
+
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 20px;
+          "
+        >
+          <div id="gfStatusMsg" class="status">
+            Ready to scan global database.
+          </div>
+          <button
+            id="stopGfBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
         </div>
+
         <div
           id="gfProgressBar"
           style="
@@ -976,6 +1149,225 @@
                 <th>Matched Address</th>
                 <th>Matched City</th>
                 <th>Matched State</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-pricing" class="tab-content">
+      <div
+        class="card"
+        style="border-top-left-radius: 0; border-top-right-radius: 0"
+      >
+        <div
+          style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px"
+        >
+          <div>
+            <label class="section-label"
+              >Option A: Account Search
+              <div class="tooltip">
+                ⓘ<span class="tooltip-text"
+                  >Fetch all assets for an Account, then get pricing for all of
+                  them.</span
+                >
+              </div>
+            </label>
+            <div class="input-group" style="margin-top: 5px">
+              <input
+                type="text"
+                id="pricingAccountId"
+                placeholder="Account ID (e.g. 1005)"
+              />
+              <button id="runPricingAccountBtn">Scan Account</button>
+            </div>
+          </div>
+
+          <div
+            style="
+              border-left: 1px solid var(--border-color);
+              padding-left: 20px;
+            "
+          >
+            <label class="section-label"
+              >Option B: Single Search
+              <div class="tooltip">
+                ⓘ<span class="tooltip-text"
+                  >Get pricing for a single Asset ID.</span
+                >
+              </div>
+            </label>
+            <div class="input-group" style="margin-top: 5px">
+              <input
+                type="text"
+                id="pricingSingleId"
+                placeholder="Asset ID (e.g. 1323)"
+              />
+              <button id="runPricingSingleBtn">Search Single</button>
+            </div>
+          </div>
+
+          <div
+            style="
+              border-left: 1px solid var(--border-color);
+              padding-left: 20px;
+            "
+          >
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+              "
+            >
+              <label class="section-label"
+                >Option C: Bulk Upload
+                <div class="tooltip">
+                  ⓘ<span class="tooltip-text"
+                    >Upload CSV with header "asset_id".</span
+                  >
+                </div>
+              </label>
+              <a
+                href="#"
+                id="pricingTemplateLink"
+                style="font-size: 0.8rem; color: white; text-decoration: none"
+                >Download CSV Template</a
+              >
+            </div>
+            <div class="input-group" style="margin-top: 5px">
+              <input type="file" id="pricingCsvFile" accept=".csv" />
+              <button id="runPricingBulkBtn">Run Bulk Search</button>
+            </div>
+          </div>
+        </div>
+
+        <hr />
+
+        <label class="section-label"
+          >Filter Results
+          <div class="tooltip">
+            ⓘ<span class="tooltip-text"
+              >Filter by process metadata. Dropdowns auto-populate based on
+              results.</span
+            >
+          </div>
+        </label>
+        <div
+          style="
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 15px;
+          "
+        >
+          <select id="pricingFilterTag" disabled>
+            <option value="ALL">All Tags (e.g. primary)</option>
+          </select>
+          <select id="pricingFilterStrategy" disabled>
+            <option value="ALL">All Strategies</option>
+          </select>
+          <select id="pricingFilterType" disabled>
+            <option value="ALL">All Types</option>
+          </select>
+          <select id="pricingFilterProcedure" disabled>
+            <option value="ALL">All Procedures</option>
+          </select>
+        </div>
+
+        <div class="description mt-10">
+          <span class="search-note">
+            <h3>Pricing Processes</h3>
+            <ul>
+              <li>
+                <strong>Account Audits:</strong> Easily pull every pricing
+                strategy and PMS integration for a specific client account.
+              </li>
+              <li>
+                <strong>Deep Scanning:</strong> Iterates through asset lists to
+                hit the <code>/multifamily/pricing</code> endpoint for each
+                property.
+              </li>
+              <li>
+                <strong>Dynamic Filters:</strong> Instantly filter the resulting
+                dataset to find specific setups (e.g., "Find all assets that use
+                MRI and revenue management").
+              </li>
+            </ul>
+          </span>
+        </div>
+
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 20px;
+          "
+        >
+          <div id="pricingStatusMsg" class="status">Ready.</div>
+          <button
+            id="stopPricingBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
+        </div>
+        <div class="progress-container" style="margin-top: 10px">
+          <div
+            id="pricingProgressBar"
+            class="progress-bar"
+            style="
+              height: 20px;
+              width: 0%;
+              background: var(--primary);
+              transition: width 0.3s;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 11px;
+              font-weight: bold;
+              color: white;
+            "
+          >
+            0%
+          </div>
+        </div>
+
+        <div class="header-row" style="margin-top: 30px">
+          <h2>
+            Pricing Results <span id="pricingCount" class="count-badge">0</span>
+          </h2>
+          <div class="btn-group">
+            <button id="copyPricingClipBtn" class="secondary-btn">
+              Copy Table
+            </button>
+            <button id="downloadPricingBtn" class="secondary-btn">
+              Download CSV
+            </button>
+          </div>
+        </div>
+
+        <div class="table-scroll-area">
+          <table id="pricingTable">
+            <thead>
+              <tr>
+                <th>Asset ID</th>
+                <th>Process ID</th>
+                <th>Process Name</th>
+                <th>Tags</th>
+                <th>Strategy</th>
+                <th>Type</th>
+                <th>Procedure</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -1080,8 +1472,29 @@
             </ul>
           </span>
         </div>
-        <div id="expStatusMsg" class="status" style="margin-top: 15px">
-          Ready.
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 15px;
+          "
+        >
+          <div id="expStatusMsg" class="status">Ready.</div>
+          <button
+            id="stopExpBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
         </div>
         <div
           id="expProgressBar"
@@ -1198,7 +1611,30 @@
             </ul>
           </span>
         </div>
-        <div id="refStatusMsg" class="status">Ready.</div>
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 20px;
+          "
+        >
+          <div id="refStatusMsg" class="status">Ready.</div>
+          <button
+            id="stopRefBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
+        </div>
         <div
           id="refProgressBar"
           style="
@@ -1312,7 +1748,30 @@
             </ul>
           </span>
         </div>
-        <div id="unitRefStatusMsg" class="status">Ready.</div>
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 15px;
+          "
+        >
+          <div id="unitRefStatusMsg" class="status">Ready.</div>
+          <button
+            id="stopUnitRefBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
+        </div>
         <div
           id="unitRefProgressBar"
           style="
@@ -1404,7 +1863,30 @@
             Cache Status:
             <span id="cacheStatusText">Empty (Will fetch on first search)</span>
           </div>
-          <div id="embedStatus" class="status-msg"></div>
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
+              margin-top: 15px;
+            "
+          >
+            <div id="embedStatus" class="status-msg"></div>
+            <button
+              id="stopEmbedBtn"
+              class="secondary-btn"
+              style="
+                display: none;
+                background-color: #b91c1c;
+                border: 1px solid #7f1d1d;
+                color: white;
+                padding: 4px 12px;
+                font-size: 0.8rem;
+              "
+            >
+              🛑 Stop Process
+            </button>
+          </div>
 
           <div
             id="embedResultContainer"
@@ -1528,8 +2010,29 @@
           </span>
         </div>
 
-        <div id="auditStatusMsg" class="status" style="margin-top: 15px">
-          Ready.
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 15px;
+          "
+        >
+          <div id="auditStatusMsg" class="status">Ready.</div>
+          <button
+            id="stopAuditBtn"
+            class="secondary-btn"
+            style="
+              display: none;
+              background-color: #b91c1c;
+              border: 1px solid #7f1d1d;
+              color: white;
+              padding: 4px 12px;
+              font-size: 0.8rem;
+            "
+          >
+            🛑 Stop Process
+          </button>
         </div>
         <div
           id="auditProgressBar"
@@ -1710,6 +2213,7 @@
     </div>
 
     <script>
+      // Tab Switching Logic
       function openTab(tabId) {
         document
           .querySelectorAll(".tab-content")
@@ -1720,6 +2224,23 @@
         document.getElementById(tabId).classList.add("active");
         event.currentTarget.classList.add("active");
       }
+
+      // Global Kill Switch Broadcast
+      document.addEventListener("DOMContentLoaded", () => {
+        const killBtn = document.getElementById("killAllBtn");
+        if (killBtn) {
+          killBtn.addEventListener("click", () => {
+            if (
+              confirm(
+                "Are you sure you want to stop all active processes across all tabs?",
+              )
+            ) {
+              // Shout the signal to all attached scripts
+              window.dispatchEvent(new Event("killAllProcesses"));
+            }
+          });
+        }
+      });
     </script>
     <script src="unitmap-search.js" defer></script>
     <script src="asset-search-account.js" defer></script>
@@ -1732,5 +2253,6 @@
     <script src="reference-match.js" defer></script>
     <script src="embed-matcher.js" defer></script>
     <script src="account-auditor.js" defer></script>
+    <script src="pricing-processes.js" defer></script>
   </body>
 </html>
